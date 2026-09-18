@@ -55,6 +55,7 @@ import {
   Layers,
   PauseCircle,
   PlayCircle,
+  Settings2,
 } from "lucide-react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -62,16 +63,36 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { api, date, encodedFile, decoded } from "./api";
 import type { SkillSummary, SkillFile } from "../shared";
-import "@fontsource/dm-sans/400.css";
-import "@fontsource/dm-sans/500.css";
-import "@fontsource/dm-sans/600.css";
-import "@fontsource/dm-sans/700.css";
-import "@fontsource/ibm-plex-mono/400.css";
+import "@fontsource/manrope/400.css";
+import "@fontsource/manrope/500.css";
+import "@fontsource/manrope/600.css";
+import "@fontsource/manrope/700.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource/poppins/500.css";
+import "@fontsource/poppins/600.css";
+import jelouSkillsLogo from "./jelou-skills-logo.svg?raw";
+import jelouSkillsMark from "./jelou-skills-mark.svg?raw";
+import { PageHeader, Panel, EmptyState } from "./page-kit";
+import "./cortex-tokens.css";
 import "./styles.css";
 const Auth = createContext<{ name: string; role: string }>({
   name: "",
   role: "reader",
 });
+function BrandLogo() {
+  return (
+    <span className="brand-lockup" role="img" aria-label="Jelou Skills">
+      <span
+        className="brand-logo"
+        dangerouslySetInnerHTML={{ __html: jelouSkillsLogo }}
+      />
+      <span
+        className="brand-mark"
+        dangerouslySetInnerHTML={{ __html: jelouSkillsMark }}
+      />
+    </span>
+  );
+}
 function ErrorNote({ error }: { error: string }) {
   return error ? (
     <div className="error-note" role="alert">
@@ -117,10 +138,10 @@ function Login({ onLogin }: { onLogin: () => void }) {
   return (
     <main className="login-page">
       <div className="login-card">
-        <div className="brand-mark">
-          <Library size={28} />
+        <div className="brand login-brand">
+          <BrandLogo />
         </div>
-        <h1>Sign in to Skillbox</h1>
+        <h1>Sign in to Jelou Skills</h1>
         <form
           onSubmit={async (e) => {
             e.preventDefault();
@@ -185,10 +206,7 @@ function Shell() {
       <div className="app-shell">
         <aside className="sidebar">
           <Link to="/" className="brand">
-            <div className="brand-mark">
-              <Library size={22} />
-            </div>
-            <strong>skillbox</strong>
+            <BrandLogo />
           </Link>
           <nav>
             <Link to="/" activeOptions={{ exact: true }}>
@@ -217,7 +235,7 @@ function Shell() {
               Activity
             </Link>
             <Link to="/settings">
-              <Plug size={17} /> Settings
+              <Settings2 size={17} /> Settings
             </Link>
             <Link to="/connect">
               <Plug size={17} />
@@ -514,7 +532,7 @@ function LibraryPage() {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search skills…"
           />
-          <kbd>⌘ K</kbd>
+          <kbd><span>⌘</span>K</kbd>
         </div>
         <span className="total-count">
           <b>{skills.filter((s) => !s.archived && !s.disabled).length}</b>{" "}
@@ -1420,10 +1438,15 @@ function ActivityPage() {
   }, [operation, skillId, offset]);
   return (
     <main className="page">
-      <header className="standard-heading">
-        <h1>Activity</h1>
-      </header>
-      <div className="filters">
+      <PageHeader
+        title="Activity"
+        description="Every read, search and reported use from connected agents."
+      />
+      <ErrorNote error={error} />
+      <Panel
+        flush
+        toolbar={
+          <>
         <select
           aria-label="Activity type"
           value={operation}
@@ -1446,8 +1469,11 @@ function ActivityPage() {
             setOffset(0);
           }}
         />
-      </div>
-      <details className="usage-definition">
+          </>
+        }
+        footer={
+          <>
+            <details className="usage-definition">
         <summary>What counts?</summary>
         <p>
           Discovery lists descriptions only. Reads load instructions, files or a
@@ -1456,8 +1482,24 @@ function ActivityPage() {
           self-reported. Historical records lack source details and cannot
           establish usage.
         </p>
-      </details>
-      <ErrorNote error={error} />
+            </details>
+            <Button
+              variant="outline"
+              disabled={!offset}
+              onClick={() => setOffset(Math.max(0, offset - 100))}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              disabled={items.length < 100}
+              onClick={() => setOffset(offset + 100)}
+            >
+              Next
+            </Button>
+          </>
+        }
+      >
       {items.length ? (
         <div className="activity-list">
           {items.map((e) => (
@@ -1511,24 +1553,13 @@ function ActivityPage() {
           ))}
         </div>
       ) : (
-        <Empty>No matching recorded events.</Empty>
+        <EmptyState
+          icon={<Activity size={18} />}
+          title="No activity yet"
+          description="Reads, searches and reported uses appear here once an agent connects with a client key."
+        />
       )}
-      <div className="filters">
-        <Button
-          variant="outline"
-          disabled={!offset}
-          onClick={() => setOffset(Math.max(0, offset - 100))}
-        >
-          Previous
-        </Button>
-        <Button
-          variant="outline"
-          disabled={items.length < 100}
-          onClick={() => setOffset(offset + 100)}
-        >
-          Next
-        </Button>
-      </div>
+      </Panel>
     </main>
   );
 }
@@ -1550,84 +1581,76 @@ function ConnectPage() {
   );
   return (
     <main className="page connect-page">
-      <header className="standard-heading">
-        <h1>Connect an agent</h1>
-      </header>
+      <PageHeader
+        title="Connect an agent"
+        description="Three steps to give Claude Code, Codex or Cursor access to this library."
+      />
       <ErrorNote error={error} />
-      <div className="connect-step">
-        <span className="step-number">01</span>
-        <div>
-          <h2>Create a client key</h2>
-          <p>
-            Use a different key for each agent so you can change access
-            independently.
-          </p>
+      <Panel
+        icon={<span className="step-number">1</span>}
+        title="Create a client key"
+        description="Use a different key for each agent so you can change access independently."
+        footer={
           <Button variant="outline" asChild>
             <Link to="/clients">
               <KeyRound size={15} /> Manage clients <ArrowUpRight size={14} />
             </Link>
           </Button>
+        }
+      />
+      <Panel
+        icon={<span className="step-number">2</span>}
+        title="Connect the library"
+        description="For clients that support HTTP MCP, add this endpoint with a Bearer token."
+      >
+        <div className="copy-line">
+          <code>{url}/mcp</code>
+          <CopyButton text={url + "/mcp"} />
         </div>
-      </div>
-      <div className="connect-step">
-        <span className="step-number">02</span>
-        <div>
-          <h2>Connect the library</h2>
-          <p>
-            For clients that support HTTP MCP, add this endpoint with a Bearer
-            token.
+        <details className="settings-disclosure">
+          <summary>Use the stdio bridge instead</summary>
+          <p className="field-help">
+            Download these two files into the same directory, then add the
+            config below. Requires Node 20+ or Bun.
           </p>
-          <div className="copy-line">
-            <code>{url}/mcp</code>
-            <CopyButton text={url + "/mcp"} />
+          <div className="download-links">
+            <a href="/cli/skillbox.mjs" download>
+              skillbox.mjs <Download size={13} />
+            </a>
+            <a href="/cli/package.mjs" download>
+              package.mjs <Download size={13} />
+            </a>
           </div>
-          <details open>
-            <summary>Or use the stdio bridge</summary>
-            <p>
-              Download these two files into the same directory, then add the
-              config below. Requires Node 20+ or Bun.
-            </p>
-            <div className="download-links">
-              <a href="/cli/skillbox.mjs" download>
-                skillbox.mjs <Download size={13} />
-              </a>
-              <a href="/cli/package.mjs" download>
-                package.mjs <Download size={13} />
-              </a>
-            </div>
-            <div className="code-block">
-              <CopyButton text={snippet} />
-              <pre>{snippet}</pre>
-            </div>
-            <p className="muted">
-              Replace the file path and YOUR_CLIENT_KEY in your agent's local
-              MCP configuration. Use a protected config file or secret
-              environment variable.
-            </p>
-          </details>
-        </div>
-      </div>
-      <div className="connect-step">
-        <span className="step-number">03</span>
-        <div>
-          <h2>Install the one bootstrap skill</h2>
-          <p>
-            It teaches your agent to browse the library at task start, load the
-            right workflow, and fetch scripts on the right machine.
+          <div className="code-block">
+            <CopyButton text={snippet} />
+            <pre>{snippet}</pre>
+          </div>
+          <p className="field-help">
+            Replace the file path and YOUR_CLIENT_KEY in your agent's local MCP
+            configuration. Use a protected config file or secret environment
+            variable.
           </p>
+        </details>
+      </Panel>
+      <Panel
+        icon={<span className="step-number">3</span>}
+        title="Install the bootstrap skill"
+        description="It teaches your agent to browse the library at task start, load the right workflow, and fetch scripts on the right machine."
+        footer={
           <Button variant="outline" asChild>
             <a href="/bootstrap/SKILL.md" download="SKILL.md">
               <Download size={15} /> Download SKILL.md
             </a>
           </Button>
-          <p className="muted">
-            Place it in your agent's native skills directory as
-            skills-library/SKILL.md.
-          </p>
-        </div>
-      </div>
+        }
+      >
+        <p className="field-help">
+          Place it in your agent's native skills directory as
+          skills-library/SKILL.md.
+        </p>
+      </Panel>
       <div className="connect-note">
-        <ShieldCheck size={20} />
+        <ShieldCheck size={18} />
         <p>
           The library provides instructions and files. Your agent's existing
           tools handle execution and service permissions.
@@ -1693,6 +1716,8 @@ const connectRoute = createRoute({
   component: ConnectPage,
 });
 const router = createRouter({
+  defaultViewTransition: !window.matchMedia("(prefers-reduced-motion: reduce)")
+    .matches,
   routeTree: rootRoute.addChildren([
     indexRoute,
     bundlesRoute,

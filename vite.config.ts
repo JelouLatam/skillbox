@@ -6,5 +6,9 @@ export default defineConfig({
   server: {
     proxy: { "/api": "http://127.0.0.1:4791", "/mcp": "http://127.0.0.1:4791" },
   },
-  build: { outDir: "dist" },
+  build: {
+    outDir: "dist",
+    // CSP font-src is 'self', so fonts must never be inlined as data: URIs.
+    assetsInlineLimit: (file) => (/\.woff2?$/.test(file) ? false : undefined),
+  },
 });

@@ -17,6 +17,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { api, decoded, date } from "./api";
 import { SkillIconView } from "./skill-icon";
+import { PageHeader, Panel, EmptyState } from "./page-kit";
 import type { Permissions, SkillSummary, SkillFile } from "../shared";
 type Profile = {
   id: string;
@@ -117,18 +118,21 @@ export function ProfilesPage() {
   }, []);
   return (
     <main className="page">
-      <header className="standard-heading">
-        <h1>Profiles</h1>
-        <Button
-          onClick={() => {
-            setDraft(blank());
-            setQuery("");
-          }}
-        >
-          <Plus size={16} />
-          New profile
-        </Button>
-      </header>
+      <PageHeader
+        title="Profiles"
+        description="A profile decides which skills a client key can see and what it is allowed to change."
+        actions={
+          <Button
+            onClick={() => {
+              setDraft(blank());
+              setQuery("");
+            }}
+          >
+            <Plus size={16} />
+            New profile
+          </Button>
+        }
+      />
       <ErrorNote error={error} />
       <div className="profile-grid">
         {profiles
@@ -196,6 +200,27 @@ export function ProfilesPage() {
             </section>
           ))}
       </div>
+      {!profiles.length && (
+        <Panel flush>
+          <EmptyState
+            icon={<ShieldCheck size={18} />}
+            title="No profiles yet"
+            description="Create a profile, grant it skills or bundles, then attach client keys to it."
+            action={
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setDraft(blank());
+                  setQuery("");
+                }}
+              >
+                <Plus size={16} />
+                New profile
+              </Button>
+            }
+          />
+        </Panel>
+      )}
       <details className="inactive-profiles">
         <summary>Profiles with only paused clients</summary>
         {profiles
@@ -455,26 +480,36 @@ export function ClientsPage() {
   );
   return (
     <main className="page">
-      <header className="standard-heading">
-        <h1>Clients</h1>
-      </header>
+      <PageHeader
+        title="Clients"
+        description="Each agent gets its own key, tied to a profile. Pause or revoke one without touching the rest."
+      />
       <ErrorNote error={error} />
       {key && (
-        <div className="secret-reveal">
-          <strong>Client key</strong>
-          <p>Copy it now. This key is shown once.</p>
-          <code>{key}</code>
-          <Button onClick={() => navigator.clipboard.writeText(key)}>
-            Copy key
-          </Button>
-          <Button variant="ghost" onClick={() => setKey("")}>
-            Dismiss
-          </Button>
-        </div>
+        <Panel
+          className="secret-panel"
+          icon={<KeyRound size={18} />}
+          title="Client key created"
+          description="Copy it now. This key is shown only once."
+          footer={
+            <>
+              <Button variant="outline" onClick={() => setKey("")}>
+                Dismiss
+              </Button>
+              <Button onClick={() => navigator.clipboard.writeText(key)}>
+                Copy key
+              </Button>
+            </>
+          }
+        >
+          <code className="secret-value">{key}</code>
+        </Panel>
       )}
       <div className="clients-layout">
-        <section>
-          <div className="access-filters">
+        <Panel
+          flush
+          toolbar={
+            <>
             <Input
               aria-label="Find clients"
               placeholder="Find clients…"
@@ -489,7 +524,9 @@ export function ClientsPage() {
               />
               Show paused ({clients.filter((c) => !c.active).length})
             </label>
-          </div>
+            </>
+          }
+        >
           {visible.map((c) => (
             <div
               className={`client-row ${c.active ? "" : "is-paused"}`}
@@ -536,8 +573,18 @@ export function ClientsPage() {
               </Button>
             </div>
           ))}
-          {!visible.length && <p className="muted">No matching clients</p>}
-        </section>
+          {!visible.length && (
+            <EmptyState
+              icon={<Users size={18} />}
+              title={clients.length ? "No matching clients" : "No clients yet"}
+              description={
+                clients.length
+                  ? "Try another name or show paused clients."
+                  : "Create a key for each agent that should read this library."
+              }
+            />
+          )}
+        </Panel>
         <form
           className="client-form"
           onSubmit={async (e) => {
@@ -559,7 +606,17 @@ export function ClientsPage() {
             }
           }}
         >
-          <h2>Add client</h2>
+          <Panel
+            icon={<Plus size={18} />}
+            title="Add client"
+            description="The key is shown once, right after you create it."
+            footer={
+              <Button disabled={busy || !profileId || !name.trim()}>
+                <KeyRound size={15} />
+                Create key
+              </Button>
+            }
+          >
           <label>
             Name
             <Input
@@ -584,10 +641,7 @@ export function ClientsPage() {
               ))}
             </select>
           </label>
-          <Button disabled={busy || !profileId || !name.trim()}>
-            <KeyRound size={15} />
-            Create key
-          </Button>
+          </Panel>
         </form>
       </div>
       {editing && (
@@ -697,20 +751,23 @@ export function ProposalsPage() {
   );
   return (
     <main className="page">
-      <header className="standard-heading">
-        <h1>Proposals</h1>
-        <label className="checkbox-label">
-          <input
-            type="checkbox"
-            checked={history}
-            onChange={(e) => setHistory(e.target.checked)}
-          />
-          Show reviewed
-        </label>
-      </header>
+      <PageHeader
+        title="Proposals"
+        description="Changes suggested by agents with propose permission. Nothing reaches the library until you approve it."
+        actions={
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={history}
+              onChange={(e) => setHistory(e.target.checked)}
+            />
+            Show reviewed
+          </label>
+        }
+      />
       <ErrorNote error={error} />
       <div className="proposal-layout">
-        <section>
+        <Panel flush>
           {items
             .filter((p) => history || p.status === "pending")
             .map((p) => (
@@ -736,9 +793,13 @@ export function ProposalsPage() {
               </button>
             ))}
           {!items.some((p) => history || p.status === "pending") && (
-            <p className="muted">No pending proposals</p>
+            <EmptyState
+              icon={<FileText size={18} />}
+              title="No pending proposals"
+              description="When an agent proposes a new skill or an update, it lands here for your review."
+            />
           )}
-        </section>
+        </Panel>
         {selected && (
           <section className="proposal-review">
             <header>

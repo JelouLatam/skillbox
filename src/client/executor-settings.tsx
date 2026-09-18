@@ -44,35 +44,124 @@ export function ExecutorSettings() {
     }
   };
   return (
-    <main className="page">
-      <header className="standard-heading">
-        <h1>Settings</h1>
+    <main className="page settings-page">
+      <header className="standard-heading settings-heading">
+        <div>
+          <h1>Settings</h1>
+          <p>Workspace integrations. Keys are encrypted and never shown again.</p>
+        </div>
       </header>
       <GatewaySettings />
-      <section className="executor-settings">
-        <h2>
-          <Plug size={20} /> Executor
-        </h2>
-        <label>
-          MCP endpoint
-          <Input
-            value={endpoint}
-            onChange={(e) => setEndpoint(e.target.value)}
-            placeholder="https://executor.example.com/mcp"
-          />
-        </label>
-        <details>
-          <summary>Use an access token</summary>
-          <Input
-            aria-label="Executor access token"
-            type="password"
-            autoComplete="off"
-            value={bearer}
-            onChange={(e) => setBearer(e.target.value)}
-          />
-        </details>
-        <div className="filters">
+      <section className="settings-card" aria-labelledby="executor-heading">
+        <header className="settings-card-header">
+          <div className="settings-card-icon">
+            <Plug size={18} />
+          </div>
+          <div className="settings-card-title">
+            <h2 id="executor-heading">Executor</h2>
+            <p>
+              Connect an Executor MCP so skills can declare the integrations
+              they rely on.
+            </p>
+          </div>
+          <span
+            role="status"
+            className={`status-badge ${config?.authenticated ? "ok" : ""}`}
+          >
+            {!config
+              ? "Loading…"
+              : config.authenticated
+                ? "Connected"
+                : "Not connected"}
+          </span>
+        </header>
+        <div className="settings-card-body">
+          <label>
+            MCP endpoint
+            <Input
+              value={endpoint}
+              onChange={(e) => setEndpoint(e.target.value)}
+              placeholder="https://executor.example.com/mcp"
+            />
+            <small className="field-help">
+              HTTPS endpoint of your Executor. OAuth runs when you connect.
+            </small>
+          </label>
+          <details className="settings-disclosure">
+            <summary>Use an access token instead of OAuth</summary>
+            <Input
+              aria-label="Executor access token"
+              type="password"
+              autoComplete="off"
+              placeholder="Paste a bearer token"
+              value={bearer}
+              onChange={(e) => setBearer(e.target.value)}
+            />
+          </details>
+          {error && (
+            <div className="error-note" role="alert">
+              {error}
+            </div>
+          )}
+          {config?.authenticated && (
+            <div className="settings-subsection">
+              <h3>
+                Connections
+                <button
+                  aria-label="Refresh Executor connections"
+                  className="status-toggle"
+                  disabled={busy}
+                  onClick={() =>
+                    run(async () =>
+                      setItems(
+                        (await api("/executor/integrations?refresh=true"))
+                          .items,
+                      ),
+                    )
+                  }
+                >
+                  <RefreshCw size={15} />
+                </button>
+              </h3>
+              <div className="integration-grid">
+                {items.map((i) => (
+                  <div
+                    key={i.id}
+                    title={
+                      i.checkedAt
+                        ? `Last checked ${new Date(i.checkedAt).toLocaleString()}`
+                        : "Health not checked"
+                    }
+                  >
+                    <i className={`health-dot ${i.status}`} />
+                    {i.id}
+                    <small>
+                      {i.connections} · {i.status}
+                    </small>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <footer className="settings-card-footer">
+          {config?.authenticated && (
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  await api("/executor/disconnect", { method: "POST" });
+                  setItems([]);
+                  await load();
+                })
+              }
+            >
+              Disconnect
+            </Button>
+          )}
           <Button
+            variant="outline"
             disabled={busy || !endpoint}
             onClick={() =>
               run(async () => {
@@ -109,69 +198,10 @@ export function ExecutorSettings() {
               <LoaderCircle size={16} className="spin" />
             ) : (
               <Plug size={16} />
-            )}{" "}
+            )}
             {config?.authenticated ? "Reconnect" : "Connect Executor"}
           </Button>
-          {config?.authenticated && (
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                run(async () => {
-                  await api("/executor/disconnect", { method: "POST" });
-                  setItems([]);
-                  await load();
-                })
-              }
-            >
-              Disconnect
-            </Button>
-          )}
-        </div>
-        {error && (
-          <div className="error-note" role="alert">
-            {error}
-          </div>
-        )}
-        {config?.authenticated && (
-          <>
-            <h3>
-              Connections{" "}
-              <button
-                aria-label="Refresh Executor connections"
-                className="status-toggle"
-                disabled={busy}
-                onClick={() =>
-                  run(async () =>
-                    setItems(
-                      (await api("/executor/integrations?refresh=true")).items,
-                    ),
-                  )
-                }
-              >
-                <RefreshCw size={15} />
-              </button>
-            </h3>
-            <div className="integration-grid">
-              {items.map((i) => (
-                <div
-                  key={i.id}
-                  title={
-                    i.checkedAt
-                      ? `Last checked ${new Date(i.checkedAt).toLocaleString()}`
-                      : "Health not checked"
-                  }
-                >
-                  <i className={`health-dot ${i.status}`} />
-                  {i.id}
-                  <small>
-                    {i.connections} · {i.status}
-                  </small>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
+        </footer>
       </section>
     </main>
   );
