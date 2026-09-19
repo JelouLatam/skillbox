@@ -35,7 +35,16 @@ function openDatabase() {
     };
   }
   // PGlite is one in-process backend: exactly one process may open a data directory.
-  const pg = new PGlite(process.env.SKILLBOX_DATA_DIR);
+  const pg = new PGlite(process.env.SKILLBOX_DATA_DIR, {
+    // PGlite passes -F (fsync off) by default; a stopped Fly machine must not lose commits.
+    startParams: PGlite.defaultStartParams.filter((p) => p !== "-F"),
+    postgresqlconf: [
+      "shared_buffers = 16MB",
+      "work_mem = 4MB",
+      "maintenance_work_mem = 16MB",
+      "wal_buffers = 1MB",
+    ],
+  });
   // A single backend means a query outside an open transaction waits for it to end. Code that
   // reaches the global `db` from inside a transaction would deadlock, so it joins that transaction.
   const active = new AsyncLocalStorage<Transaction>();

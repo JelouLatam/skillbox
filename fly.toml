@@ -1,4 +1,4 @@
-app = "jelou-skillbox"
+app = "jelou-ops-skills"
 primary_region = "iad"
 kill_signal = "SIGINT"
 kill_timeout = "30s"
@@ -7,7 +7,7 @@ kill_timeout = "30s"
   build-target = "fly"
 
 [env]
-  SKILLBOX_ORIGIN = "https://jelou-skillbox.fly.dev"
+  SKILLBOX_ORIGIN = "https://jelou-ops-skills.fly.dev"
 
 [http_service]
   internal_port = 4791

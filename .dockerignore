@@ -20,6 +20,9 @@
 !scripts/**
 !tests/
 !tests/**
+!deploy/
+!deploy/fly/
+!deploy/fly/**
 **/.env*
 **/*.dump
 **/*.log
