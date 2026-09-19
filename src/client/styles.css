@@ -4077,3 +4077,17 @@ details[open] > :not(summary) {
 .command-actions {
   gap: 8px;
 }
+.settings-card-body:has(> .empty-state) {
+  max-width: none;
+}
+.client-identity .client-meta {
+  margin-top: 3px;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 6px;
+}
+.client-meta > span + span::before {
+  content: "·";
+  margin-right: 6px;
+  color: var(--faint);
+}

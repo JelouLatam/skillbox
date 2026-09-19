@@ -552,22 +552,24 @@ export function ClientsPage() {
               )}
               <div className="client-identity">
                 <strong>{c.ownerEmail ? c.name.split(" · ")[0] : c.name}</strong>
-                {c.ownerEmail && <p>{c.ownerEmail}</p>}
-                <p>
-                  {profiles.find((p) => p.id === c.profileId)?.name ??
-                    "Unknown profile"}
+                <p className="client-meta">
+                  {c.ownerEmail && <span>{c.ownerEmail}</span>}
+                  <span>
+                    {profiles.find((p) => p.id === c.profileId)?.name ??
+                      "Unknown profile"}
+                  </span>
+                  <span
+                    title={
+                      c.lastSeen
+                        ? new Date(c.lastSeen).toLocaleString()
+                        : undefined
+                    }
+                  >
+                    {c.lastSeen
+                      ? `Last request ${date(c.lastSeen)}`
+                      : "No requests yet"}
+                  </span>
                 </p>
-                <small
-                  title={
-                    c.lastSeen
-                      ? new Date(c.lastSeen).toLocaleString()
-                      : undefined
-                  }
-                >
-                  {c.lastSeen
-                    ? `Last request ${date(c.lastSeen)}`
-                    : "No requests recorded"}
-                </small>
               </div>
               <Button
                 variant="ghost"
