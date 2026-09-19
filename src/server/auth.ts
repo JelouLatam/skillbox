@@ -3,6 +3,7 @@ import { and, eq, gt } from "drizzle-orm";
 import { db } from "./db";
 import { clients, sessions, profiles, users } from "./schema";
 import { ADMIN, Problem, sha256 } from "./library";
+import { adminEmails } from "./config";
 import type { Principal } from "../shared";
 export const token = () => randomBytes(32).toString("base64url");
 export function isAdminToken(value: string) {
@@ -122,7 +123,10 @@ export function userPrincipal(
   user: typeof users.$inferSelect,
   context?: Principal["context"],
 ): Principal {
-  if (user.role === "admin")
+  // SKILLBOX_ADMIN_EMAILS is the live source of admins: a stored "admin" row that
+  // is no longer listed must lose admin before its owner next signs in.
+  const isAdmin = adminEmails().has(user.email);
+  if (isAdmin)
     return { ...ADMIN, id: "user:" + user.email, name: user.name, context };
   return {
     id: "user:" + user.email,

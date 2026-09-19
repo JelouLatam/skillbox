@@ -26,12 +26,35 @@ import type { Principal } from "../shared";
 import { recommendationInput } from "./recommendations";
 import { compatibilityPage, manifestFor } from "./skill-resources";
 export const app = new Hono<{ Variables: { principal: Principal } }>();
-const loginAttempts: number[] = [];
+/** Failure counters are per caller: a global one lets anyone lock everybody out. */
+function failureCounter(limit: number, max = 4096) {
+  const windows = new Map<string, number[]>();
+  return {
+    exceeded(key: string) {
+      const now = Date.now(),
+        hits = (windows.get(key) ?? []).filter((t) => t > now - 60000);
+      if (hits.length) windows.set(key, hits);
+      else windows.delete(key);
+      return hits.length >= limit;
+    },
+    record(key: string) {
+      if (windows.size >= max && !windows.has(key)) windows.clear();
+      windows.set(key, [...(windows.get(key) ?? []), Date.now()]);
+    },
+  };
+}
+const callerKey = (c: Context) =>
+  c.req.header("Fly-Client-IP") ??
+  c.req.header("X-Forwarded-For")?.split(",")[0]?.trim() ??
+  "unknown";
+const loginAttempts = failureCounter(10);
 app.use("*", async (c, next) => {
   c.header("X-Content-Type-Options", "nosniff");
   c.header("Referrer-Policy", "no-referrer");
   c.header("X-Frame-Options", "DENY");
   c.header("Cache-Control", "no-store");
+  if (origin().startsWith("https:"))
+    c.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   c.header(
     "Content-Security-Policy",
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
@@ -74,13 +97,11 @@ app.post("/api/login", async (c) => {
   const { key } = z
     .object({ key: z.string().min(1).max(512) })
     .parse(await c.req.json());
-  const now = Date.now();
-  while (loginAttempts.length && loginAttempts[0] < now - 60000)
-    loginAttempts.shift();
-  if (loginAttempts.length >= 10)
+  const caller = callerKey(c);
+  if (loginAttempts.exceeded(caller))
     throw new lib.Problem(429, "Too many attempts. Try again in a minute.");
   if (!isAdminToken(key)) {
-    loginAttempts.push(now);
+    loginAttempts.record(caller);
     throw new lib.Problem(401, "Invalid access key");
   }
   await startSession(c, null);
@@ -104,12 +125,10 @@ async function startSession(c: Context, userEmail: string | null) {
     maxAge: 86400,
   });
 }
-const redeemFailures: number[] = [];
+const redeemFailures = failureCounter(20);
 app.post("/install/redeem", async (c) => {
-  const now = Date.now();
-  while (redeemFailures.length && redeemFailures[0] < now - 60000)
-    redeemFailures.shift();
-  if (redeemFailures.length >= 20)
+  const caller = callerKey(c);
+  if (redeemFailures.exceeded(caller))
     throw new lib.Problem(429, "Too many attempts. Try again in a minute.");
   const { code } = z
     .object({ code: z.string().min(1).max(128) })
@@ -120,7 +139,7 @@ app.post("/install/redeem", async (c) => {
       origin: origin(),
     });
   } catch (e) {
-    redeemFailures.push(now);
+    redeemFailures.record(caller);
     throw e;
   }
 });
@@ -227,6 +246,7 @@ app.patch("/api/users/:email", async (c) => {
     .where(eq(users.email, email))
     .returning();
   if (!user) throw new lib.Problem(404, "User not found");
+  await personalKeys.rebindKeys(email);
   return c.json(user);
 });
 app.put("/api/bundles/:id", async (c) => {

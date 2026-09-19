@@ -2,14 +2,15 @@ import { beforeAll, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db, migrate } from "../src/server/db";
-import { users } from "../src/server/schema";
+import { clients, profiles, users } from "../src/server/schema";
 import { app } from "../src/server/app";
 import { saveProfile } from "../src/server/access";
 import { upsertUser } from "../src/server/google-auth";
-import { ADMIN } from "../src/server/library";
+import { ADMIN, sha256 } from "../src/server/library";
 import { userPrincipal } from "../src/server/auth";
 import {
   createMyKey,
+  rebindKeys,
   listMyKeys,
   reinstallMyKey,
   revokeMyKey,
@@ -159,4 +160,54 @@ test("a device counts as connected once its key is used, and reinstall replaces 
   await expect(
     reinstallMyKey(await person("stranger"), created.id),
   ).rejects.toThrow("not found");
+});
+
+test("demoting an author re-points the keys they already installed", async () => {
+  const author = await person("writer", "author");
+  const created = await createMyKey(author, "Desk");
+  const profileOf = async (key: string) => {
+    const [row] = await db
+      .select({ name: profiles.name })
+      .from(clients)
+      .innerJoin(profiles, eq(clients.profileId, profiles.id))
+      .where(eq(clients.tokenHash, sha256(key)));
+    return row?.name;
+  };
+  expect(await profileOf(created.key)).toBe(authorProfile);
+  const email = author.id.slice(5);
+  await db.update(users).set({ role: "member" }).where(eq(users.email, email));
+  await rebindKeys(email);
+  expect(await profileOf(created.key)).toBe(memberProfile);
+});
+
+test("a stored admin row loses admin once its email leaves the env var", async () => {
+  const user = await upsertUser({
+    email: `stale-${suffix}@example.com`,
+    name: "Stale",
+    emailVerified: true,
+    hostedDomain: "example.com",
+    audience: "",
+    issuer: "",
+  });
+  expect(userPrincipal({ ...user, role: "admin" }).role).not.toBe("admin");
+  process.env.SKILLBOX_ADMIN_EMAILS = user.email;
+  try {
+    expect(userPrincipal({ ...user, role: "admin" }).role).toBe("admin");
+  } finally {
+    delete process.env.SKILLBOX_ADMIN_EMAILS;
+  }
+});
+
+test("install throttling isolates one caller from everybody else", async () => {
+  const attempt = (ip: string) =>
+    app.request("/install/redeem", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Fly-Client-IP": ip },
+      body: JSON.stringify({ code: "wrong-" + randomUUID() }),
+    });
+  const statuses = [];
+  for (let i = 0; i < 21; i++) statuses.push((await attempt("10.0.0.1")).status);
+  expect(statuses.slice(0, 20)).toEqual(Array(20).fill(404));
+  expect(statuses[20]).toBe(429);
+  expect((await attempt("10.0.0.2")).status).toBe(404);
 });

@@ -5,7 +5,7 @@ import { db } from "./db";
 import { profiles, clients, proposals } from "./schema";
 import { assertAdmin, createClient } from "./auth";
 import * as lib from "./library";
-import type { Principal, SkillFile } from "../shared";
+import type { Principal, SkillFile, SkillMetadata } from "../shared";
 
 export const profileSchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -81,6 +81,17 @@ export async function uniqueClient(name: string, profileId: string) {
     return createClient(name.trim(), "reader", false, [], profileId);
   });
 }
+/** Settings a proposal may not carry; their own routes require update rights. */
+const gatedSettings = (m: SkillMetadata) =>
+  JSON.stringify({
+    kind: m.kind,
+    members: m.members ?? [],
+    disabled: m.disabled ?? false,
+    archived: m.archived ?? false,
+    replacement: m.replacement ?? null,
+    icon: m.icon ?? null,
+    executorIntegrations: m.executorIntegrations ?? [],
+  });
 export async function propose(
   p: Principal,
   id: string,
@@ -95,18 +106,11 @@ export async function propose(
     throw new lib.Problem(409, "Skill changed. Reload before proposing.");
   lib.validateFiles(files);
   const metadata = lib.metadata(id, files);
-  for (const key of [
-    "kind",
-    "members",
-    "disabled",
-    "archived",
-    "replacement",
-  ] as const)
-    if (JSON.stringify(metadata[key]) !== JSON.stringify(current.metadata[key]))
-      throw new lib.Problem(
-        403,
-        "Proposals can change skill content, not access or lifecycle settings",
-      );
+  if (gatedSettings(metadata) !== gatedSettings(current.metadata))
+    throw new lib.Problem(
+      403,
+      "Proposals can change skill content, not access or lifecycle settings",
+    );
   const [row] = await db
     .insert(proposals)
     .values({

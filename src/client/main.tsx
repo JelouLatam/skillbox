@@ -1397,7 +1397,7 @@ function SkillPage() {
               Binary asset · {currentFile?.size.toLocaleString()} bytes. Fetch
               the package to use this file.
             </Empty>
-          ) : mode === "read" && path.endsWith(".md") ? (
+          ) : mode === "read" && path.endsWith(".md") && text.length <= 100_000 ? (
             <article className="markdown">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}

@@ -39,6 +39,20 @@ async function profileFor(email: string) {
   );
 }
 
+/** A key's authority comes from its profile, so a role change has to re-point it. */
+export async function rebindKeys(email: string) {
+  const owned = and(
+    eq(clients.ownerEmail, email.toLowerCase()),
+    eq(clients.active, true),
+  );
+  try {
+    const profile = await profileFor(email);
+    await db.update(clients).set({ profileId: profile.id }).where(owned);
+  } catch {
+    // No profile to fall back to: revoke rather than leave the old grants live.
+    await db.update(clients).set({ active: false }).where(owned);
+  }
+}
 export async function listMyKeys(p: Principal) {
   return db
     .select({

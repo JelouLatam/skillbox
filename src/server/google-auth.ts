@@ -2,8 +2,10 @@ import { createHash, randomBytes } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { db } from "./db";
 import { users } from "./schema";
-import { appOrigin } from "./config";
+import { adminEmails, appOrigin } from "./config";
 import { Problem } from "./library";
+import { rebindKeys } from "./personal-keys";
+export { adminEmails };
 
 export type UserRole = "admin" | "author" | "member";
 export type User = typeof users.$inferSelect;
@@ -21,14 +23,6 @@ export function googleConfig() {
   };
 }
 
-export function adminEmails() {
-  return new Set(
-    (process.env.SKILLBOX_ADMIN_EMAILS ?? "")
-      .split(",")
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
 
 export function startGoogleLogin() {
   const config = googleConfig();
@@ -133,5 +127,6 @@ export async function upsertUser(identity: GoogleIdentity): Promise<User> {
       set: { name: identity.name, role, lastLoginAt: sql`now()` },
     })
     .returning();
+  if (existing && existing.role !== role) await rebindKeys(user.email);
   return user;
 }
