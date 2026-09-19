@@ -1,16 +1,16 @@
 ---
-name: skillbox-publisher
+name: jelou-skills-publisher
 description: Publish a new skill or an update to the Jelou Skills library, or propose a change for review. Use when the user asks to publish, upload, share, update or propose a skill, or to move a local skill folder into the shared library.
 ---
 
-# Skillbox publisher
+# Jelou Skills publisher
 
 The library keeps every skill as immutable revisions. Every write names the revision it replaces, so two
 people editing the same skill never overwrite each other silently.
 
 ## 1. Know what you can do
 
-Look at the Skillbox MCP tools available in this session:
+Look at the Jelou Skills MCP tools available in this session:
 
 | Tool present | You can |
 |---|---|
@@ -48,7 +48,7 @@ Write a message of at most 200 characters that says what changed and why.
 `sha256`, `size`, `executable`) and the message. From a terminal the CLI builds the files for you:
 
 ```sh
-skillbox publish ./my-skill my-skill <revision|new>
+jelou-skills publish ./my-skill my-skill <revision|new>
 ```
 
 **Propose** (`propose_skill_update`): same files and `expectedRevision` (required), plus the message.

@@ -13,10 +13,10 @@ if command -v node >/dev/null 2>&1 && node -e 'process.exit(Number(process.versi
 elif command -v bun >/dev/null 2>&1; then
   runtime=bun
 else
-  echo "Skillbox needs Node.js 20+ or Bun. Install one (https://nodejs.org) and run this command again." >&2
+  echo "Jelou Skills needs Node.js 20+ or Bun. Install one (https://nodejs.org) and run this command again." >&2
   exit 1
 fi
-dir="$HOME/.local/share/skillbox"
+dir="$HOME/.local/share/jelou-skills"
 mkdir -p "$dir"
 for file in skillbox.mjs package.mjs setup.mjs; do
   curl -fsSL "$origin/cli/$file" -o "$dir/$file.download"

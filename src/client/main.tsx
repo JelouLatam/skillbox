@@ -685,7 +685,7 @@ function LibraryPage() {
             query || tag
               ? "Try another word or clear the category."
               : view === "available"
-                ? "Skills are published with the skillbox CLI or the skillbox-publisher skill."
+                ? "Skills are published with the jelou-skills CLI or the jelou-skills-publisher skill."
                 : undefined
           }
         />

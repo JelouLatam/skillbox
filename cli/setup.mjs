@@ -16,11 +16,19 @@ import { homedir } from "node:os";
 import { join, dirname, relative } from "node:path";
 
 const home = homedir();
-const installDir = join(home, ".local/share/skillbox");
-const configPath = join(home, ".config/skillbox/config.json");
-const wrapperPath = join(home, ".local/bin/skillbox");
+const SERVER = "jelou-skills";
+const installDir = join(home, ".local/share/jelou-skills");
+const configPath = join(home, ".config/jelou-skills/config.json");
+const wrapperPath = join(home, ".local/bin/jelou-skills");
 const sharedSkill = join(home, ".agents/skills/skills-library");
-const stateDir = join(home, ".local/state/skillbox");
+const stateDir = join(home, ".local/state/jelou-skills");
+// Installs made before the rename used these; they are removed on setup and uninstall.
+const legacy = {
+  server: "skillbox",
+  installDir: join(home, ".local/share/skillbox"),
+  configDir: join(home, ".config/skillbox"),
+  wrapper: join(home, ".local/bin/skillbox"),
+};
 const CLI_FILES = ["skillbox.mjs", "package.mjs", "setup.mjs"];
 
 const clients = {
@@ -68,7 +76,7 @@ async function backup(path) {
 async function write(path, content, mode = 0o600) {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   await backup(path);
-  const temporary = path + ".skillbox-new";
+  const temporary = path + ".jelou-skills-new";
   await writeFile(temporary, content, { mode });
   await chmod(temporary, mode);
   await rename(temporary, path);
@@ -91,34 +99,40 @@ function bridge(runtime) {
   };
 }
 
+function isLegacyEntry(entry) {
+  return JSON.stringify(entry ?? null).includes(legacy.installDir);
+}
 async function registerJson(path, server) {
   const raw = await readText(path);
   const data = raw ? JSON.parse(raw) : {};
   data.mcpServers ??= {};
-  data.mcpServers.skillbox = server;
+  if (isLegacyEntry(data.mcpServers[legacy.server]))
+    delete data.mcpServers[legacy.server];
+  data.mcpServers[SERVER] = server;
   await write(path, JSON.stringify(data, null, 2) + "\n");
 }
 async function unregisterJson(path) {
   const raw = await readText(path);
   if (!raw) return false;
   const data = JSON.parse(raw);
-  if (!data.mcpServers?.skillbox) return false;
-  delete data.mcpServers.skillbox;
+  const names = [SERVER, legacy.server].filter((name) =>
+    name === SERVER ? data.mcpServers?.[name] : isLegacyEntry(data.mcpServers?.[name]),
+  );
+  if (!names.length) return false;
+  for (const name of names) delete data.mcpServers[name];
   await write(path, JSON.stringify(data, null, 2) + "\n");
   return true;
 }
 
-// Codex config is TOML; only the [mcp_servers.skillbox] tables are touched, as text,
+// Codex config is TOML; only our [mcp_servers.*] tables are touched, as text,
 // so comments and formatting elsewhere in the file survive.
+const CODEX_TABLE = /^mcp_servers\.("jelou-skills"|jelou-skills|"skillbox"|skillbox)(\.|$)/;
 function withoutCodexBlock(content) {
   const out = [];
   let skipping = false;
   for (const line of content.split("\n")) {
     const header = line.match(/^\s*\[([^\]]+)\]\s*(#.*)?$/);
-    if (header)
-      skipping = /^mcp_servers\.("skillbox"|skillbox)(\.|$)/.test(
-        header[1].trim(),
-      );
+    if (header) skipping = CODEX_TABLE.test(header[1].trim());
     if (!skipping) out.push(line);
   }
   return out.join("\n").replace(/\n{3,}$/, "\n\n");
@@ -126,11 +140,11 @@ function withoutCodexBlock(content) {
 async function registerCodex(path, server) {
   const content = withoutCodexBlock((await readText(path)) ?? "");
   const block = [
-    "[mcp_servers.skillbox]",
+    `[mcp_servers.${SERVER}]`,
     `command = ${JSON.stringify(server.command)}`,
     `args = ${JSON.stringify(server.args)}`,
     "",
-    "[mcp_servers.skillbox.env]",
+    `[mcp_servers.${SERVER}.env]`,
     `SKILLBOX_CONFIG = ${JSON.stringify(server.env.SKILLBOX_CONFIG)}`,
     "",
   ].join("\n");
@@ -139,7 +153,13 @@ async function registerCodex(path, server) {
 }
 async function unregisterCodex(path) {
   const content = await readText(path);
-  if (!content || !/\[mcp_servers\.("skillbox"|skillbox)\]/.test(content))
+  if (
+    !content ||
+    !content.split("\n").some((line) => {
+      const header = line.match(/^\s*\[([^\]]+)\]/);
+      return header && CODEX_TABLE.test(header[1].trim());
+    })
+  )
     return false;
   await write(path, withoutCodexBlock(content).trimEnd() + "\n");
   return true;
@@ -169,6 +189,13 @@ async function linkSkill(skillsDir) {
   await symlink(relative(skillsDir, sharedSkill), link, "dir");
 }
 
+async function removeLegacyFiles() {
+  if (((await readText(legacy.wrapper)) ?? "").includes(legacy.installDir))
+    await rm(legacy.wrapper, { force: true });
+  for (const path of [legacy.installDir, legacy.configDir])
+    await rm(path, { recursive: true, force: true });
+}
+
 async function installFiles(origin) {
   for (const name of CLI_FILES)
     await write(
@@ -192,7 +219,7 @@ function checkBridge(runtime) {
       params: {
         protocolVersion: "2025-06-18",
         capabilities: {},
-        clientInfo: { name: "skillbox-setup", version: "1" },
+        clientInfo: { name: "jelou-skills-setup", version: "1" },
       },
     },
     { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
@@ -227,7 +254,7 @@ async function setup(args) {
     "",
   );
   if (!code || !origin)
-    throw new Error("Usage: skillbox setup <install-code> --origin <url>");
+    throw new Error("Usage: jelou-skills setup <install-code> --origin <url>");
   const r = await fetch(origin + "/install/redeem", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -258,6 +285,7 @@ async function setup(args) {
     if (client.skills) await linkSkill(client.skills);
     configured.push(client.label);
   }
+  await removeLegacyFiles();
   await write(
     wrapperPath,
     `#!/bin/sh\nexec "${runtime}" "${join(installDir, "skillbox.mjs")}" "$@"\n`,
@@ -267,12 +295,12 @@ async function setup(args) {
   console.log(
     configured.length
       ? `✓ Configured: ${configured.join(", ")}. Restart them to load the library.`
-      : "! No Claude Code, Codex or Cursor installation found. Install one and run `skillbox setup` again with a new code.",
+      : "! No Claude Code, Codex or Cursor installation found. Install one and run `jelou-skills setup` again with a new code.",
   );
   console.log("✓ Library skill: ~/.agents/skills/skills-library");
   if (!(process.env.PATH ?? "").split(":").includes(dirname(wrapperPath)))
     console.log(
-      `! Add ${dirname(wrapperPath)} to your PATH to use the \`skillbox\` command.`,
+      `! Add ${dirname(wrapperPath)} to your PATH to use the \`jelou-skills\` command.`,
     );
   if (backupDir) console.log(`  Backups of changed files: ${backupDir}`);
 }
@@ -315,7 +343,7 @@ async function doctor() {
     const content = (await readText(client.config)) ?? "";
     line(
       content.includes(join(installDir, "skillbox.mjs")),
-      `${client.label}: ${content.includes("skillbox") ? "connected" : "not connected"} (${client.config})`,
+      `${client.label}: ${content.includes(SERVER) ? "connected" : "not connected"} (${client.config})`,
     );
   }
   line(
@@ -339,9 +367,10 @@ async function uninstall() {
       } catch {}
     }
   }
-  for (const path of [sharedSkill, configPath, wrapperPath, installDir])
+  for (const path of [sharedSkill, dirname(configPath), wrapperPath, installDir])
     await rm(path, { recursive: true, force: true });
-  console.log("✓ Removed the library skill, key, CLI and `skillbox` command");
+  await removeLegacyFiles();
+  console.log("✓ Removed the library skill, key, CLI and `jelou-skills` command");
   if (backupDir) console.log(`  Backups of changed files: ${backupDir}`);
   console.log(
     "  The key still exists on the server; revoke it on the My devices page.",

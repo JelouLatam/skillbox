@@ -75,7 +75,7 @@ test("audit CLI walks pages, reports failures and guards cursor progress", async
     expect(manifest.code).toBe(0);
     expect(JSON.parse(manifest.stdout).revision).toBe("fixture");
     expect((await run("manifest")).stderr).toContain(
-      "Usage: skillbox manifest <id>",
+      "Usage: jelou-skills manifest <id>",
     );
   } finally {
     server.stop(true);

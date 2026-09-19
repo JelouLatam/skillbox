@@ -1,4 +1,4 @@
-# Skillbox for Jelou — rollout plan
+# Jelou Skills — rollout plan
 
 Goal: an internal skills library on Fly.io (org `jelou-ops`), behind Google login restricted to `@jelou.ai`,
 where anyone at Jelou connects their agent with **one command**, and publishing or updating a skill reaches
@@ -101,19 +101,23 @@ shows the key and a `claude mcp add` command.
 ## Phase 4 — One-command installer
 
 Status (2026-09-18): implemented (`cli/install.sh` served at `/install`, `cli/setup.mjs` for
-`skillbox setup|update|doctor|uninstall`). Tested in an isolated `HOME` with existing Claude Code,
+`jelou-skills setup|update|doctor|uninstall`). Tested in an isolated `HOME` with existing Claude Code,
 Codex and Cursor configs: unrelated servers, comments and skills are preserved, reinstalling does
 not duplicate entries, and `uninstall` restores the configs to their previous content.
+
+User-facing names are `jelou-skills` (command, MCP server, install and config folders) since
+2026-09-19. `setup` and `uninstall` remove entries and folders left by installs made under the old
+`skillbox` name; internal names (`SKILLBOX_*` variables, cookies, `cli/skillbox.mjs`) are unchanged.
 
 ```sh
 curl -fsSL https://skills.jelou.dev/install | sh -s -- <code>
 ```
 
 1. `GET /install` serves a short `sh`: checks for `node` or `bun`, downloads `skillbox.mjs` and
-   `package.mjs` to `~/.local/share/skillbox/` and runs `skillbox setup <code>`.
-2. `skillbox setup` (new, in Node; **not** Python: macOS system Python has no `tomllib`) does what
+   `package.mjs` to `~/.local/share/jelou-skills/` and runs `jelou-skills setup <code>`.
+2. `jelou-skills setup` (new, in Node; **not** Python: macOS system Python has no `tomllib`) does what
    `scripts/install-client.py` does today:
-   - Exchanges the code for the key → `~/.config/skillbox/config.json` (mode 0600).
+   - Exchanges the code for the key → `~/.config/jelou-skills/config.json` (mode 0600).
    - Installs the `skills-library` skill in `~/.agents/skills/` and links it into `~/.claude/skills/` and
      `~/.cursor/skills/`.
    - Registers the MCP server in every client it finds, through the **stdio bridge** with
@@ -122,18 +126,18 @@ curl -fsSL https://skills.jelou.dev/install | sh -s -- <code>
      - Codex → `~/.codex/config.toml` (shared by CLI, desktop app and IDE).
      - Cursor → `~/.cursor/mcp.json`.
    - Backs up every file it touches and tests the connection (`tools/list` + `search_skills`).
-   - Installs the `skillbox` command in `~/.local/bin`.
+   - Installs the `jelou-skills` command in `~/.local/bin`.
 3. New CLI commands:
-   - `skillbox update`: downloads the CLI and the `skills-library` skill again from the server.
-   - `skillbox doctor`: checks the key, the connection and which clients are configured.
-   - `skillbox uninstall`: removes client configuration and restores backups.
+   - `jelou-skills update`: downloads the CLI and the `skills-library` skill again from the server.
+   - `jelou-skills doctor`: checks the key, the connection and which clients are configured.
+   - `jelou-skills uninstall`: removes client configuration and restores backups.
 
 **Done when:** on a clean Mac, a `@jelou.ai` user goes from login to their first skill loaded in Claude
 Code and Codex in under 2 minutes.
 
 ## Phase 5 — Publishing and updating skills
 
-Status (2026-09-18): `skillbox-publisher` is in the repo (`skills/skillbox-publisher`) and published to
+Status (2026-09-18): `jelou-skills-publisher` is in the repo (`skills/jelou-skills-publisher`) and published to
 the production library. Differences from the original plan: it is visible to everyone (members lack
 write tools, so it only tells them to ask for access), and authors can propose changes to existing
 skills only; new skills are published by an admin. Admin personal keys use `SKILLBOX_ADMIN_PROFILE`
@@ -141,35 +145,35 @@ skills only; new skills are published by an admin. Admin personal keys use `SKIL
 
 Already exists (unchanged):
 
-- **CLI:** `skillbox publish ./folder id <current-revision|new>`. The expected revision prevents
+- **CLI:** `jelou-skills publish ./folder id <current-revision|new>`. The expected revision prevents
   overwriting someone else's change.
 - **MCP:** `upsert_skill` (write permission) and `propose_skill_update` (authors).
 - **Panel:** editor, history, restore, proposal review.
 
 To add:
 
-1. **`skillbox-publisher` skill**, stored in the library itself and visible only to admins and authors.
+1. **`jelou-skills-publisher` skill**, stored in the library itself and visible only to admins and authors.
    It teaches the agent to:
    - validate the folder (`SKILL.md` with `name` and `description`, no secrets, no absolute paths);
-   - `skillbox load <id>` to get the current revision, or `new` if the skill does not exist;
+   - `jelou-skills load <id>` to get the current revision, or `new` if the skill does not exist;
    - publish (admin) or propose (author) with a clear message about what changed.
 
    Optional (the MCP tools can already write), but it makes everyone publish the same way.
 2. **Initial load:** `bun scripts/import.ts` with the chosen skills (see Open decisions).
 
 Consumers have **nothing to update**: the agent reads the library live. Only skills downloaded with
-`skillbox fetch` (the ones with scripts) are refreshed with `skillbox fetch <id>`.
+`jelou-skills fetch` (the ones with scripts) are refreshed with `jelou-skills fetch <id>`.
 
 ## Phase 6 (later) — Claude Desktop (chat) and claude.ai
 
 These cannot use the MCP server with a fixed key. For now:
 
-- `skillbox export --zip <id>` builds one ZIP per skill.
+- `jelou-skills export --zip <id>` builds one ZIP per skill.
 - An owner of the Claude organization uploads it in **Organization settings → Skills**, and it shows up
   for the whole org.
 - It is a snapshot: every change must be uploaded again. Only for skills worth it.
 
-Later: OAuth in skillbox (on the same Google login) to add it as a custom connector.
+Later: OAuth in Jelou Skills (on the same Google login) to add it as a custom connector.
 
 ## Operations
 
