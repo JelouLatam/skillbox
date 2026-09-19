@@ -135,6 +135,7 @@ export async function migrate() {
   await connection`CREATE TABLE IF NOT EXISTS users (email text PRIMARY KEY,name text NOT NULL,role text NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),last_login_at timestamptz)`;
   await connection`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_email text REFERENCES users(email) ON DELETE CASCADE`;
   await connection`ALTER TABLE clients ADD COLUMN IF NOT EXISTS owner_email text`;
+  await connection`ALTER TABLE clients ADD COLUMN IF NOT EXISTS last_used_at timestamptz`;
   await connection`CREATE INDEX IF NOT EXISTS clients_owner_idx ON clients(owner_email) WHERE owner_email IS NOT NULL`;
   await connection`CREATE TABLE IF NOT EXISTS install_codes (hash text PRIMARY KEY,client_id text NOT NULL REFERENCES clients(id),sealed_key jsonb NOT NULL,expires_at timestamptz NOT NULL)`;
   await connection`ALTER TABLE skills ADD COLUMN IF NOT EXISTS reference_id text NOT NULL DEFAULT gen_random_uuid()::text`;

@@ -15,9 +15,10 @@ import {
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import { Link } from "@tanstack/react-router";
 import { api, decoded, date } from "./api";
 import { SkillIconView } from "./skill-icon";
-import { PageHeader, Panel, EmptyState } from "./page-kit";
+import { PageHeader, Panel, EmptyState, Segmented, UserAvatar } from "./page-kit";
 import type { Permissions, SkillSummary, SkillFile } from "../shared";
 type Profile = {
   id: string;
@@ -33,6 +34,7 @@ type Client = {
   profileId: string;
   active: boolean;
   lastSeen: string | null;
+  ownerEmail?: string | null;
 };
 const blank = () => ({
   name: "",
@@ -473,7 +475,7 @@ export function ClientsPage() {
   };
   const visible = clients.filter(
     (c) =>
-      (paused || c.active) &&
+      (paused ? !c.active : c.active) &&
       `${c.name} ${profiles.find((p) => p.id === c.profileId)?.name}`
         .toLowerCase()
         .includes(query.toLowerCase()),
@@ -516,14 +518,23 @@ export function ClientsPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={paused}
-                onChange={(e) => setPaused(e.target.checked)}
-              />
-              Show paused ({clients.filter((c) => !c.active).length})
-            </label>
+            <Segmented
+              label="Client status"
+              value={paused ? "paused" : "active"}
+              onChange={(v) => setPaused(v === "paused")}
+              options={[
+                {
+                  value: "active",
+                  label: "Active",
+                  count: clients.filter((c) => c.active).length,
+                },
+                {
+                  value: "paused",
+                  label: "Paused",
+                  count: clients.filter((c) => !c.active).length,
+                },
+              ]}
+            />
             </>
           }
         >
@@ -532,11 +543,16 @@ export function ClientsPage() {
               className={`client-row ${c.active ? "" : "is-paused"}`}
               key={c.id}
             >
-              <div className="client-avatar">
-                <Users size={20} />
-              </div>
+              {c.ownerEmail ? (
+                <UserAvatar name={c.ownerEmail} size={36} />
+              ) : (
+                <div className="client-avatar">
+                  <KeyRound size={18} />
+                </div>
+              )}
               <div className="client-identity">
-                <strong>{c.name}</strong>
+                <strong>{c.ownerEmail ? c.name.split(" · ")[0] : c.name}</strong>
+                {c.ownerEmail && <p>{c.ownerEmail}</p>}
                 <p>
                   {profiles.find((p) => p.id === c.profileId)?.name ??
                     "Unknown profile"}
@@ -579,7 +595,7 @@ export function ClientsPage() {
               title={clients.length ? "No matching clients" : "No clients yet"}
               description={
                 clients.length
-                  ? "Try another name or show paused clients."
+                  ? "Try another name or switch between Active and Paused."
                   : "Create a key for each agent that should read this library."
               }
             />
@@ -714,16 +730,129 @@ export function ClientsPage() {
     </main>
   );
 }
+type DiffLine = { type: "same" | "add" | "del"; text: string; a?: number; b?: number };
+function lineDiff(before: string, after: string): DiffLine[] | null {
+  const a = before.split("\n"),
+    b = after.split("\n");
+  if ((a.length + 1) * (b.length + 1) > 2_000_000) return null;
+  const w = b.length + 1;
+  const lcs = new Int32Array((a.length + 1) * w);
+  for (let i = a.length - 1; i >= 0; i--)
+    for (let j = b.length - 1; j >= 0; j--)
+      lcs[i * w + j] =
+        a[i] === b[j]
+          ? lcs[(i + 1) * w + j + 1] + 1
+          : Math.max(lcs[(i + 1) * w + j], lcs[i * w + j + 1]);
+  const out: DiffLine[] = [];
+  let i = 0,
+    j = 0;
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) {
+      out.push({ type: "same", text: a[i], a: ++i, b: ++j });
+    } else if (j < b.length && (i >= a.length || lcs[i * w + j + 1] >= lcs[(i + 1) * w + j])) {
+      out.push({ type: "add", text: b[j], b: ++j });
+    } else {
+      out.push({ type: "del", text: a[i], a: ++i });
+    }
+  }
+  return out;
+}
+function hunks(lines: DiffLine[], context = 3) {
+  const keep = new Set<number>();
+  lines.forEach((l, i) => {
+    if (l.type !== "same")
+      for (let k = Math.max(0, i - context); k <= Math.min(lines.length - 1, i + context); k++)
+        keep.add(k);
+  });
+  const out: (DiffLine | "gap")[] = [];
+  lines.forEach((l, i) => {
+    if (!keep.has(i)) {
+      if (out.length && out[out.length - 1] !== "gap") out.push("gap");
+      return;
+    }
+    out.push(l);
+  });
+  if (out[out.length - 1] === "gap") out.pop();
+  return out;
+}
+const TEXT_FILE = /\.(md|txt|json|ya?ml|toml|ts|tsx|js|mjs|py|sh|css|html|sql)$/;
+function FileChange({ path, before, after }: { path: string; before?: SkillFile; after?: SkillFile }) {
+  const status = !after ? "Removed" : !before ? "Added" : "Changed";
+  const diff =
+    TEXT_FILE.test(path) &&
+    lineDiff(before ? decoded(before.content) : "", after ? decoded(after.content) : "");
+  const added = diff ? diff.filter((l) => l.type === "add").length : 0,
+    removed = diff ? diff.filter((l) => l.type === "del").length : 0;
+  return (
+    <section className="file-change">
+      <header>
+        <FileText size={15} />
+        <strong>{path}</strong>
+        <span className={`change-badge ${status.toLowerCase()}`}>{status}</span>
+        {diff && (
+          <span className="change-count">
+            <b className="add">+{added}</b> <b className="del">−{removed}</b>
+          </span>
+        )}
+      </header>
+      {diff ? (
+        <div className="diff-view">
+          {hunks(diff).map((l, i) =>
+            l === "gap" ? (
+              <div className="diff-gap" key={i}>
+                ⋯
+              </div>
+            ) : (
+              <div className={`diff-line ${l.type}`} key={i}>
+                <span className="diff-num">{l.a ?? ""}</span>
+                <span className="diff-num">{l.b ?? ""}</span>
+                <span className="diff-mark">{l.type === "add" ? "+" : l.type === "del" ? "−" : ""}</span>
+                <code>{l.text || " "}</code>
+              </div>
+            ),
+          )}
+        </div>
+      ) : (
+        <p className="field-help file-change-binary">
+          {after ? `${after.size.toLocaleString()} bytes` : "File removed"}
+          {before && after ? ` (was ${before.size.toLocaleString()} bytes)` : ""}
+        </p>
+      )}
+    </section>
+  );
+}
+function proposalAuthor(clientName: string) {
+  const [device, owner] = clientName.split(" · ");
+  return owner?.includes("@")
+    ? { name: owner, device }
+    : { name: clientName, device: "" };
+}
 export function ProposalsPage() {
   const [items, setItems] = useState<any[]>([]),
     [selected, setSelected] = useState<any>(null),
     [error, setError] = useState(""),
-    [history, setHistory] = useState(false),
+    [tab, setTab] = useState<"pending" | "reviewed">("pending"),
     [busy, setBusy] = useState(false);
-  const refresh = () => api("/proposals").then(setItems);
+  const refresh = () =>
+    api("/proposals").then((all) => {
+      setItems(all);
+      return all;
+    });
   useEffect(() => {
-    refresh().catch((e) => setError(e.message));
+    refresh()
+      .then((all: any[]) => {
+        const first = all.find((p) => p.status === "pending");
+        if (first) open(first.id);
+      })
+      .catch((e) => setError(e.message));
   }, []);
+  const open = async (id: string) => {
+    try {
+      setSelected(await api(`/proposals/${id}`));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
   const review = async (decision: string) => {
     setBusy(true);
     setError("");
@@ -732,133 +861,132 @@ export function ProposalsPage() {
         method: "POST",
         body: JSON.stringify({ decision }),
       });
-      setSelected(null);
       await refresh();
+      await open(selected.id);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
   };
+  const pending = items.filter((p) => p.status === "pending");
+  const visible = tab === "pending" ? pending : items.filter((p) => p.status !== "pending");
   const base: SkillFile[] = selected?.baseFiles ?? [],
     next: SkillFile[] = selected?.files ?? [];
-  const paths = [...new Set([...base, ...next].map((f) => f.path))].filter(
-    (path) => {
-      const a = base.find((f) => f.path === path),
-        b = next.find((f) => f.path === path);
-      return a?.sha256 !== b?.sha256 || a?.executable !== b?.executable;
-    },
-  );
+  const paths = [...new Set([...base, ...next].map((f) => f.path))].filter((path) => {
+    const a = base.find((f) => f.path === path),
+      b = next.find((f) => f.path === path);
+    return a?.sha256 !== b?.sha256 || a?.executable !== b?.executable;
+  });
+  const author = selected && proposalAuthor(selected.clientName);
   return (
     <main className="page">
       <PageHeader
         title="Proposals"
-        description="Changes suggested by agents with propose permission. Nothing reaches the library until you approve it."
+        description="Changes suggested by authors' agents. Nothing reaches the library until you approve it."
         actions={
-          <label className="checkbox-label">
-            <input
-              type="checkbox"
-              checked={history}
-              onChange={(e) => setHistory(e.target.checked)}
-            />
-            Show reviewed
-          </label>
+          <Segmented
+            label="Proposal status"
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: "pending", label: "Pending", count: pending.length },
+              { value: "reviewed", label: "Reviewed", count: items.length - pending.length },
+            ]}
+          />
         }
       />
       <ErrorNote error={error} />
       <div className="proposal-layout">
-        <Panel flush>
-          {items
-            .filter((p) => history || p.status === "pending")
-            .map((p) => (
+        <Panel flush className="proposal-list">
+          {visible.map((p) => {
+            const who = proposalAuthor(p.clientName);
+            return (
               <button
-                className={`proposal-row ${selected?.id === p.id ? "selected" : ""}`}
+                className={`proposal-item ${selected?.id === p.id ? "selected" : ""}`}
                 key={p.id}
-                onClick={async () => {
-                  try {
-                    setSelected(await api(`/proposals/${p.id}`));
-                  } catch (e) {
-                    setError((e as Error).message);
-                  }
-                }}
+                onClick={() => open(p.id)}
               >
-                <FileText size={18} />
-                <span>
-                  <strong>{p.skillId}</strong>
-                  <span>{p.message}</span>
+                <UserAvatar name={who.name} size={36} />
+                <span className="proposal-item-text">
+                  <strong>{p.message}</strong>
                   <small>
-                    {p.clientName} · {date(p.createdAt)} · {p.status}
+                    {who.name} · {p.skillId} · {date(p.createdAt)}
                   </small>
                 </span>
+                {p.status !== "pending" && (
+                  <span className={`change-badge ${p.status === "approved" ? "added" : "removed"}`}>
+                    {p.status === "approved" ? "Approved" : "Rejected"}
+                  </span>
+                )}
               </button>
-            ))}
-          {!items.some((p) => history || p.status === "pending") && (
+            );
+          })}
+          {!visible.length && (
             <EmptyState
               icon={<FileText size={18} />}
-              title="No pending proposals"
-              description="When an agent proposes a new skill or an update, it lands here for your review."
+              title={tab === "pending" ? "Nothing to review" : "No reviewed proposals yet"}
+              description={
+                tab === "pending"
+                  ? "When an author's agent proposes a change, it shows up here."
+                  : undefined
+              }
             />
           )}
         </Panel>
-        {selected && (
-          <section className="proposal-review">
-            <header>
-              <h2>{selected.skillId}</h2>
-              {selected.status === "pending" && (
-                <div>
-                  <Button
-                    disabled={busy}
-                    variant="ghost"
-                    onClick={() => review("reject")}
-                  >
-                    <X size={15} />
-                    Reject
+        {selected ? (
+          <Panel flush className="proposal-detail">
+            <header className="proposal-detail-head">
+              <UserAvatar name={author.name} size={40} />
+              <div>
+                <strong>
+                  {author.name} proposed a change to{" "}
+                  <Link to="/skills/$id" params={{ id: selected.skillId }}>
+                    {selected.skillId}
+                  </Link>
+                </strong>
+                <small>
+                  {author.device && `From ${author.device} · `}
+                  {date(selected.createdAt)} · {paths.length}{" "}
+                  {paths.length === 1 ? "file" : "files"}
+                </small>
+              </div>
+              {selected.status === "pending" ? (
+                <div className="proposal-actions">
+                  <Button disabled={busy} variant="outline" onClick={() => review("reject")}>
+                    <X size={15} /> Reject
                   </Button>
                   <Button disabled={busy} onClick={() => review("approve")}>
-                    <Check size={15} />
-                    Approve
+                    <Check size={15} /> Approve
                   </Button>
                 </div>
+              ) : (
+                <span className={`change-badge ${selected.status === "approved" ? "added" : "removed"}`}>
+                  {selected.status === "approved" ? "Approved" : "Rejected"}
+                  {selected.reviewer ? ` by ${selected.reviewer}` : ""}
+                </span>
               )}
             </header>
-            <p>{selected.message}</p>
-            {paths.map((path) => (
-              <details key={path} open={paths.length === 1}>
-                <summary>
-                  {path}{" "}
-                  {!next.some((f) => f.path === path)
-                    ? "· Removed"
-                    : !base.some((f) => f.path === path)
-                      ? "· Added"
-                      : "· Changed"}
-                </summary>
-                <div className="proposal-diff">
-                  {[base, next].map((files, i) => {
-                    const file = files.find((f) => f.path === path);
-                    return (
-                      <div key={i}>
-                        <small>
-                          {i ? "Proposed" : "Original"}
-                          {file?.executable ? " · Executable" : ""}
-                        </small>
-                        {file ? (
-                          <pre>
-                            {/\.(md|txt|json|ya?ml|toml|ts|tsx|js|mjs|py|sh|css|html|sql)$/.test(
-                              path,
-                            )
-                              ? decoded(file.content)
-                              : `${file.size} bytes · SHA-256 ${file.sha256}`}
-                          </pre>
-                        ) : (
-                          <p>Not present</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </details>
-            ))}
-          </section>
+            <blockquote className="proposal-message">{selected.message}</blockquote>
+            <div className="proposal-files">
+              {paths.map((path) => (
+                <FileChange
+                  key={path}
+                  path={path}
+                  before={base.find((f) => f.path === path)}
+                  after={next.find((f) => f.path === path)}
+                />
+              ))}
+            </div>
+          </Panel>
+        ) : (
+          <Panel className="proposal-detail">
+            <EmptyState
+              icon={<FileText size={18} />}
+              title="Select a proposal"
+              description="See who proposed it, why, and exactly which lines change."
+            />
+          </Panel>
         )}
       </div>
     </main>
@@ -922,9 +1050,7 @@ export function PeoplePage() {
       >
         {visible.map((u) => (
           <div className="client-row" key={u.email}>
-            <div className="client-avatar">
-              {u.name.trim().charAt(0).toUpperCase() || "?"}
-            </div>
+            <UserAvatar name={u.email} size={36} />
             <div className="client-identity">
               <strong>{u.name}</strong>
               <p>{u.email}</p>

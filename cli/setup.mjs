@@ -239,7 +239,7 @@ async function setup(args) {
   if (!r.ok)
     throw new Error(
       (body.error ?? `HTTP ${r.status}`) +
-        ". Create a new key on the Connect page to get a fresh code.",
+        ". Create a new key on the My devices page to get a fresh code.",
     );
   const runtime = process.execPath;
   await installFiles(origin);
@@ -279,7 +279,7 @@ async function setup(args) {
 
 async function loadConfig() {
   const raw = await readText(configPath);
-  if (!raw) throw new Error("Not set up yet. Run the install command from the Connect page.");
+  if (!raw) throw new Error("Not set up yet. Get an install command from any skill page or My devices.");
   return JSON.parse(raw);
 }
 
@@ -305,7 +305,7 @@ async function doctor() {
     const me = await r.json().catch(() => ({}));
     line(
       r.ok,
-      r.ok ? `Key works (${me.name})` : `Key rejected (HTTP ${r.status}). Create a new one on the Connect page.`,
+      r.ok ? `Key works (${me.name})` : `Key rejected (HTTP ${r.status}). Create a new one on the My devices page.`,
     );
   } catch (e) {
     line(false, `Cannot reach the library: ${e.message}`);
@@ -344,7 +344,7 @@ async function uninstall() {
   console.log("✓ Removed the library skill, key, CLI and `skillbox` command");
   if (backupDir) console.log(`  Backups of changed files: ${backupDir}`);
   console.log(
-    "  The key still exists on the server; revoke it on the Connect page.",
+    "  The key still exists on the server; revoke it on the My devices page.",
   );
 }
 

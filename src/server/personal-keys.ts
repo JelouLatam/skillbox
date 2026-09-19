@@ -3,6 +3,7 @@ import { and, eq, gt, lt, sql } from "drizzle-orm";
 import { db } from "./db";
 import { clients, installCodes, profiles, users } from "./schema";
 import { uniqueClient } from "./access";
+import { token } from "./auth";
 import { Problem, sha256 } from "./library";
 import { open, seal } from "./secret-storage";
 import type { Principal } from "../shared";
@@ -44,6 +45,7 @@ export async function listMyKeys(p: Principal) {
       id: clients.id,
       name: clients.name,
       createdAt: clients.createdAt,
+      lastUsedAt: clients.lastUsedAt,
       lastSeen: sql<
         string | null
       >`(SELECT max(events.created_at) FROM events WHERE events.client_id=clients.id)`,
@@ -77,18 +79,46 @@ export async function createMyKey(p: Principal, device: string) {
     .update(clients)
     .set({ ownerEmail: email })
     .where(eq(clients.id, client.id));
+  return {
+    id: client.id,
+    key: client.token,
+    ...(await issueCode(client.id, client.token)),
+  };
+}
+
+async function issueCode(clientId: string, key: string) {
   const code = randomBytes(16).toString("base64url");
-  const expiresAt = new Date(Date.now() + CODE_TTL_MS).toISOString();
+  const codeExpiresAt = new Date(Date.now() + CODE_TTL_MS).toISOString();
   await db
     .delete(installCodes)
     .where(lt(installCodes.expiresAt, new Date().toISOString()));
+  await db.delete(installCodes).where(eq(installCodes.clientId, clientId));
   await db.insert(installCodes).values({
     hash: sha256(code),
-    clientId: client.id,
-    sealedKey: seal(client.token),
-    expiresAt,
+    clientId,
+    sealedKey: seal(key),
+    expiresAt: codeExpiresAt,
   });
-  return { id: client.id, key: client.token, code, codeExpiresAt: expiresAt };
+  return { code, codeExpiresAt };
+}
+
+/** Replaces the key of one of the caller's devices; the old key stops working immediately. */
+export async function reinstallMyKey(p: Principal, id: string) {
+  const email = ownerOf(p);
+  const key = token();
+  const [row] = await db
+    .update(clients)
+    .set({ tokenHash: sha256(key), lastUsedAt: null })
+    .where(
+      and(
+        eq(clients.id, id),
+        eq(clients.ownerEmail, email),
+        eq(clients.active, true),
+      ),
+    )
+    .returning({ id: clients.id });
+  if (!row) throw new Problem(404, "Key not found");
+  return { id, ...(await issueCode(id, key)) };
 }
 
 export async function revokeMyKey(p: Principal, id: string) {

@@ -10,6 +10,7 @@ import { ExecutorSettings, SkillIntegrations } from "./executor-settings";
 import { isIconAsset } from "../package-metrics";
 import { SkillIconView } from "./skill-icon";
 import React, {
+  type ReactNode,
   useEffect,
   useState,
   createContext,
@@ -50,6 +51,12 @@ import {
   LoaderCircle,
   X,
   ShieldCheck,
+  RefreshCw,
+  MoreHorizontal,
+  EyeOff,
+  Eye,
+  Laptop,
+  ChevronsUpDown,
   UserRound,
   Download,
   Trash2,
@@ -73,7 +80,7 @@ import "@fontsource/poppins/500.css";
 import "@fontsource/poppins/600.css";
 import jelouSkillsLogo from "./jelou-skills-logo.svg?raw";
 import jelouSkillsMark from "./jelou-skills-mark.svg?raw";
-import { PageHeader, Panel, EmptyState } from "./page-kit";
+import { PageHeader, Panel, EmptyState, UserAvatar } from "./page-kit";
 import "./cortex-tokens.css";
 import "./styles.css";
 type Me = { name: string; role: string; email: string | null };
@@ -114,15 +121,17 @@ function Empty({ children }: { children: React.ReactNode }) {
 function CopyButton({
   text,
   label = "Copy",
+  primary = false,
 }: {
   text: string;
   label?: string;
+  primary?: boolean;
 }) {
   const [copied, set] = useState(false);
   return (
     <Button
-      variant="outline"
-      size="sm"
+      variant={primary ? "default" : "outline"}
+      size={primary ? "default" : "sm"}
       onClick={async () => {
         await navigator.clipboard.writeText(text);
         set(true);
@@ -320,40 +329,75 @@ function Shell() {
                 </Link>
               </>
             )}
-            <Link to="/connect">
-              <Plug size={17} />
-              Connect an agent
-            </Link>
           </nav>
-          <div className="sidebar-bottom">
-            <div className="avatar">
-              {user.name.trim().charAt(0).toUpperCase() || "?"}
-            </div>
-            <div>
-              <strong>{user.name}</strong>
-              <small title={user.email ?? undefined}>
-                {user.email ?? "Workspace owner"}
-              </small>
-            </div>
-            <Button
-              aria-label="Sign out"
-              title="Sign out"
-              variant="ghost"
-              size="icon"
-              onClick={async () => {
-                await api("/logout", { method: "POST" });
-                setUser(null);
-              }}
-            >
-              <LogOut size={15} />
-            </Button>
-          </div>
+          <ProfileMenu
+            user={user}
+            onSignOut={async () => {
+              await api("/logout", { method: "POST" });
+              setUser(null);
+            }}
+          />
         </aside>
         <div className="workspace">
           <Outlet />
         </div>
       </div>
     </Auth.Provider>
+  );
+}
+function ProfileMenu({
+  user,
+  onSignOut,
+}: {
+  user: Me;
+  onSignOut: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  useEffect(() => setOpen(false), [pathname]);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !ref.current?.contains(e.target as Node))
+        setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [open]);
+  return (
+    <div className="sidebar-bottom" ref={ref}>
+      {open && (
+        <div className="profile-menu" role="menu">
+          <Link to="/devices" role="menuitem">
+            <Laptop size={16} /> My devices
+          </Link>
+          <button type="button" role="menuitem" onClick={onSignOut}>
+            <LogOut size={16} /> Sign out
+          </button>
+        </div>
+      )}
+      <button
+        type="button"
+        className="profile-button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <UserAvatar name={user.email ?? user.name} size={34} />
+        <span className="profile-text">
+          <strong>{user.name}</strong>
+          <small title={user.email ?? undefined}>
+            {user.email ?? "Signed in with the admin key"}
+          </small>
+        </span>
+        <ChevronsUpDown size={15} />
+      </button>
+    </div>
   );
 }
 function SidebarBundles() {
@@ -412,13 +456,12 @@ function BundlesPage() {
         a.title.localeCompare(b.title),
     );
   return (
-    <main className="page">
-      <header className="page-heading">
-        <div>
-          <h1>Bundles</h1>
-        </div>
-      </header>
-      <div className="library-toolbar">
+    <main className="page library-page">
+      <PageHeader
+        title="Bundles"
+        description="Sets of skills that work together. An agent that loads a bundle gets every skill in it."
+      />
+      <div className="library-search">
         <div className="search-field">
           <Search size={19} />
           <input
@@ -428,49 +471,56 @@ function BundlesPage() {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <span className="total-count">
-          <b>{bundles.length}</b> bundles
-        </span>
       </div>
       <ErrorNote error={error} />
       {loading ? (
         <Empty>Loading bundles…</Empty>
       ) : !matches.length ? (
-        <Empty>No bundles match your search.</Empty>
+        <EmptyState
+          icon={<Layers size={18} />}
+          title={bundles.length ? "No bundles match" : "No bundles yet"}
+          description={
+            bundles.length
+              ? "Try another word."
+              : "Bundles group related skills so an agent can load them together."
+          }
+        />
       ) : (
         <div className="bundle-grid">
           {matches.map((b) => {
             const members = b.members
               .map((id) => catalog.find((s) => s.id === id))
               .filter((s): s is SkillSummary => !!s);
-            const childBundles = members.filter((s) => s.kind === "bundle");
-            const skillCount = members.length - childBundles.length;
             return (
-              <article className="bundle-card" key={b.id}>
-                <Link
-                  to="/skills/$id"
-                  params={{ id: b.id }}
-                  className="bundle-card-heading"
-                >
-                  <Layers size={21} />
-                  <h2>{b.title}</h2>
-                </Link>
-                <p>{b.description}</p>
-                <div className="bundle-card-count">
-                  {skillCount} direct {skillCount === 1 ? "skill" : "skills"}
-                  {childBundles.length
-                    ? ` · ${childBundles.length} nested ${childBundles.length === 1 ? "bundle" : "bundles"}`
-                    : ""}
-                </div>
-                <div className="bundle-members">
-                  {members.map((m) => (
-                    <Link to="/skills/$id" params={{ id: m.id }} key={m.id}>
-                      {m.kind === "bundle" && <Layers size={12} />}
-                      {m.title}
-                    </Link>
+              <Link
+                to="/skills/$id"
+                params={{ id: b.id }}
+                className="bundle-card"
+                key={b.id}
+              >
+                <div className="bundle-icons">
+                  {members.slice(0, 4).map((m) => (
+                    <SkillIconView icon={m.icon} key={m.id} />
                   ))}
+                  {members.length > 4 && (
+                    <span className="bundle-more">+{members.length - 4}</span>
+                  )}
                 </div>
-              </article>
+                <div className="bundle-card-text">
+                  <h2>{b.title}</h2>
+                  <p>{b.description}</p>
+                </div>
+                <div className="bundle-card-foot">
+                  <span>
+                    <Layers size={14} /> {members.length}{" "}
+                    {members.length === 1 ? "skill" : "skills"}
+                  </span>
+                  <span className="bundle-card-names">
+                    {members.map((m) => m.title).join(" · ")}
+                  </span>
+                  <ChevronRight size={16} />
+                </div>
+              </Link>
             );
           })}
         </div>
@@ -660,102 +710,305 @@ function SkillActivity({ skill }: { skill: SkillSummary }) {
     </small>
   );
 }
-function InstallGuide({ id, revision }: { id: string; revision: string }) {
+type DeviceKey = {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  lastSeen: string | null;
+};
+type PendingInstall = {
+  id: string;
+  device: string;
+  code: string;
+  codeExpiresAt: string;
+  created: boolean;
+};
+const deviceName = (k: DeviceKey) => k.name.split(" · ")[0];
+const lastUse = (k: DeviceKey) => k.lastSeen ?? k.lastUsedAt;
+function usedLabel(k: DeviceKey) {
+  const when = lastUse(k);
+  if (!when) return "not set up yet";
+  return new Date(when).toDateString() === new Date().toDateString()
+    ? "used today"
+    : `used ${date(when)}`;
+}
+function InstallGuide({
+  id,
+  onConnected,
+}: {
+  id: string;
+  onConnected: (connected: boolean) => void;
+}) {
   const auth = useContext(Auth);
   const url = window.location.origin;
-  const [devices, setDevices] = useState<number | null>(null),
+  const [keys, setKeys] = useState<DeviceKey[] | null>(null),
+    [limit, setLimit] = useState(5),
+    [pending, setPending] = useState<PendingInstall | null>(null),
+    [justConnected, setJustConnected] = useState(""),
     [adding, setAdding] = useState(false),
     [device, setDevice] = useState(""),
-    [code, setCode] = useState(""),
+    [now, setNow] = useState(Date.now()),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
+  const load = () =>
+    api("/my/keys").then((r) => {
+      setKeys(r.keys);
+      setLimit(r.limit);
+      return r.keys as DeviceKey[];
+    });
   useEffect(() => {
-    if (!auth.email) return;
-    api("/my/keys")
-      .then((r) => setDevices(r.keys.length))
-      .catch(() => setDevices(0));
+    if (auth.email) load().catch((e) => setError(e.message));
   }, [auth.email]);
-  const command = `curl -fsSL ${url}/install | sh -s -- ${code}`;
+  const connected = (keys ?? []).filter((k) => lastUse(k));
+  const unused = (keys ?? []).filter((k) => !lastUse(k) && k.id !== pending?.id);
+  const isConnected = connected.length > 0 || !!justConnected;
+  useEffect(() => onConnected(isConnected), [isConnected]);
+  const expired = pending ? now > Date.parse(pending.codeExpiresAt) : false;
+  useEffect(() => {
+    if (!pending || expired) return;
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    const poll = setInterval(async () => {
+      const fresh = await load().catch(() => null);
+      const k = fresh?.find((f) => f.id === pending.id);
+      if (k && lastUse(k)) {
+        setJustConnected(pending.device);
+        setPending(null);
+      }
+    }, 5000);
+    return () => {
+      clearInterval(tick);
+      clearInterval(poll);
+    };
+  }, [pending, expired]);
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setError("");
+    try {
+      await fn();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const connect = (name: string) =>
+    run(async () => {
+      const r = await api("/my/keys", {
+        method: "POST",
+        body: JSON.stringify({ device: name }),
+      });
+      setPending({ id: r.id, device: name, code: r.code, codeExpiresAt: r.codeExpiresAt, created: true });
+      setNow(Date.now());
+      setAdding(false);
+      setDevice("");
+      await load();
+    });
+  const reinstall = (k: { id: string; device: string }) =>
+    run(async () => {
+      const r = await api(`/my/keys/${k.id}/install`, { method: "POST" });
+      setPending({ id: k.id, device: k.device, code: r.code, codeExpiresAt: r.codeExpiresAt, created: false });
+      setNow(Date.now());
+      await load();
+    });
+  const discard = () =>
+    run(async () => {
+      if (pending?.created && !justConnected)
+        await api(`/my/keys/${pending.id}`, { method: "DELETE" });
+      setPending(null);
+      await load();
+    });
+  const remaining = pending ? Math.max(0, Date.parse(pending.codeExpiresAt) - now) : 0;
+  const clock = `${Math.floor(remaining / 60000)}:${String(Math.floor((remaining % 60000) / 1000)).padStart(2, "0")}`;
+  const command = pending ? `curl -fsSL ${url}/install | sh -s -- ${pending.code}` : "";
   const prompt = `Use the ${id} skill from the library.`;
-  const fetchCommand = `skillbox fetch ${id}@${revision}`;
-  const showForm = auth.email && !code && (devices === 0 || adding);
+  const full = (keys?.length ?? 0) >= limit;
+  const form = (
+    <form
+      className="install-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        connect(device.trim());
+      }}
+    >
+      <label htmlFor="device-name">Name this computer</label>
+      <Input
+        id="device-name"
+        placeholder="e.g. MacBook"
+        maxLength={40}
+        value={device}
+        onChange={(e) => setDevice(e.target.value)}
+      />
+      <Button className="w-full" disabled={busy || !device.trim() || full}>
+        <Terminal size={15} /> Connect this computer
+      </Button>
+      <p className="field-help">
+        {full
+          ? `You've reached ${limit} computers. Remove one under My devices.`
+          : "You'll get a one-line command to paste in a terminal."}
+      </p>
+    </form>
+  );
+  let step: ReactNode;
+  let done = false;
+  if (!auth.email) {
+    step = (
+      <>
+        <strong className="step-title">Connect your agent</strong>
+        <p>Sign in with your Jelou Google account to get your personal install command.</p>
+        <Button asChild variant="outline" className="w-full">
+          <a href="/api/auth/google">
+            <GoogleMark /> Sign in with Google
+          </a>
+        </Button>
+      </>
+    );
+  } else if (pending && !expired) {
+    step = (
+      <>
+        <strong className="step-title">Run this on {pending.device}</strong>
+        <div className="command-card">
+          <div className="command-head">
+            <span className={`countdown ${remaining < 60000 ? "warn" : ""}`}>
+              <Clock size={13} /> Expires in {clock}
+            </span>
+            <CopyButton text={command} />
+          </div>
+          <pre>{command}</pre>
+        </div>
+        <p>
+          Paste it in a terminal. It sets up Claude Code, Codex and Cursor in one
+          go. Restart your agent afterwards.
+        </p>
+        <div className="note waiting">
+          <LoaderCircle size={15} />
+          <p>
+            Waiting for {pending.device} to check in…
+            <small>This updates by itself once the command has run.</small>
+          </p>
+        </div>
+        <div className="command-actions">
+          <Button variant="outline" onClick={() => setPending(null)}>
+            Done
+          </Button>
+          <button type="button" className="text-link" onClick={discard}>
+            Cancel
+          </button>
+        </div>
+      </>
+    );
+  } else if (pending && expired) {
+    step = (
+      <>
+        <strong className="step-title">Connect your agent</strong>
+        <div className="note expired">
+          <Clock size={15} />
+          <p>
+            The command for {pending.device} expired.
+            <small>Codes last 10 minutes. Nothing was installed.</small>
+          </p>
+        </div>
+        <Button className="w-full" disabled={busy} onClick={() => reinstall(pending)}>
+          <RefreshCw size={15} /> Get a new command for {pending.device}
+        </Button>
+        <button type="button" className="text-link" onClick={() => discard().then(() => setAdding(true))}>
+          Use a different name
+        </button>
+      </>
+    );
+  } else if (justConnected) {
+    done = true;
+    step = (
+      <>
+        <strong className="step-title">Connected</strong>
+        <div className="note success">
+          <Check size={15} />
+          <p>
+            {justConnected} is set up.
+            <small>Restart your agent once and it will see the whole library.</small>
+          </p>
+        </div>
+      </>
+    );
+  } else if (keys === null) {
+    step = <strong className="step-title">Connect your agent</strong>;
+  } else if ((connected.length || unused.length) && !adding) {
+    done = connected.length > 0;
+    step = (
+      <>
+        <strong className="step-title">
+          {connected.length
+            ? `Connected on ${connected.length} ${connected.length === 1 ? "computer" : "computers"}`
+            : "Finish connecting your agent"}
+        </strong>
+        <div className="devices">
+          {[...connected, ...unused].map((k) => (
+            <div className="device-row" key={k.id}>
+              <Laptop size={14} />
+              <span>{deviceName(k)}</span>
+              {lastUse(k) ? (
+                <span className="when">{usedLabel(k)}</span>
+              ) : (
+                <button
+                  type="button"
+                  className="text-link when"
+                  disabled={busy}
+                  onClick={() => reinstall({ id: k.id, device: deviceName(k) })}
+                >
+                  Get install command
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="command-actions">
+          {!full && (
+            <button type="button" className="text-link" onClick={() => setAdding(true)}>
+              Add another computer
+            </button>
+          )}
+          <Link to="/devices" className="text-link">
+            Manage
+          </Link>
+        </div>
+      </>
+    );
+  } else {
+    step = (
+      <>
+        <strong className="step-title">Connect your agent</strong>
+        <p>Once per computer. Works with Claude Code, Codex and Cursor.</p>
+        {form}
+        {adding && (keys?.length ?? 0) > 0 && (
+          <button type="button" className="text-link" onClick={() => setAdding(false)}>
+            Cancel
+          </button>
+        )}
+      </>
+    );
+  }
   return (
     <Panel
-      className="install-guide"
+      className="install-card"
       icon={<Plug size={18} />}
       title="Use this skill"
-      description="Skills load live from the library. Connect your agent once and every skill, and every update, is ready to use."
+      description="Connect your agent once and it gets every skill in the library, updates included."
     >
       <ol className="install-steps">
         <li>
-          <span className="step-number">1</span>
+          <span className={`step-number ${done ? "done" : ""}`}>
+            {done ? <Check size={13} /> : "1"}
+          </span>
           <div>
-            <strong>Connect your agent</strong>
-            <p>Once per device. Works with Claude Code, Codex and Cursor.</p>
-            {!auth.email ? (
-              <p className="field-help">
-                Sign in with Google to get a personal install command.
-              </p>
-            ) : code ? (
-              <>
-                <div className="code-block command-block">
-                  <CopyButton text={command} />
-                  <pre>{command}</pre>
-                </div>
-                <p className="field-help">
-                  Paste it in a terminal on that device within 10 minutes, then
-                  restart your agent.
-                </p>
-              </>
-            ) : showForm ? (
-              <form
-                className="install-form"
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  setBusy(true);
-                  setError("");
-                  try {
-                    const r = await api("/my/keys", {
-                      method: "POST",
-                      body: JSON.stringify({ device }),
-                    });
-                    setCode(r.code);
-                    setDevices((d) => (d ?? 0) + 1);
-                  } catch (e) {
-                    setError((e as Error).message);
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              >
-                <Input
-                  aria-label="Device name"
-                  placeholder="Device name, e.g. MacBook"
-                  maxLength={40}
-                  value={device}
-                  onChange={(e) => setDevice(e.target.value)}
-                />
-                <Button disabled={busy || !device.trim()}>
-                  <Terminal size={15} /> Get install command
-                </Button>
-                <ErrorNote error={error} />
-              </form>
-            ) : devices === null ? null : (
-              <p className="install-connected">
-                <Check size={15} /> Connected on {devices}{" "}
-                {devices === 1 ? "device" : "devices"} ·{" "}
-                <button type="button" onClick={() => setAdding(true)}>
-                  Add a device
-                </button>
-              </p>
-            )}
+            {step}
+            <ErrorNote error={error} />
           </div>
         </li>
-        <li>
+        <li className={isConnected ? "" : "dim"}>
           <span className="step-number">2</span>
           <div>
-            <strong>Ask for it</strong>
-            <p>Your agent finds skills on its own. To be explicit, say:</p>
+            <strong className="step-title">Just ask</strong>
+            <p>Your agent picks the right skill on its own. To be explicit:</p>
             <div className="copy-line prompt-line">
               <code>{prompt}</code>
               <CopyButton text={prompt} />
@@ -763,17 +1016,6 @@ function InstallGuide({ id, revision }: { id: string; revision: string }) {
           </div>
         </li>
       </ol>
-      <details className="settings-disclosure">
-        <summary>Need the files on disk?</summary>
-        <p className="field-help">
-          Only for skills with scripts or assets. After connecting, this
-          downloads this exact revision and prints its folder:
-        </p>
-        <div className="copy-line">
-          <code>{fetchCommand}</code>
-          <CopyButton text={fetchCommand} />
-        </div>
-      </details>
     </Panel>
   );
 }
@@ -785,7 +1027,10 @@ function SkillPage() {
     [mode, setMode] = useState<"read" | "source" | "history">("read"),
     [history, setHistory] = useState<any[]>([]),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [connected, setConnected] = useState(false),
+    [menuOpen, setMenuOpen] = useState(false),
+    [catalog, setCatalog] = useState<SkillSummary[]>([]);
   const auth = useContext(Auth);
   const refresh = async () => {
     const l = await api("/skills/" + id);
@@ -797,6 +1042,8 @@ function SkillPage() {
     setFiles(b.files);
     setHistory(h);
     setPath("SKILL.md");
+    if (l.metadata.kind === "bundle")
+      setCatalog((await api("/skills?limit=500")).items);
   };
   useEffect(() => {
     setLoaded(null);
@@ -804,6 +1051,23 @@ function SkillPage() {
     setMode("read");
     refresh().catch((e) => setError(e.message));
   }, [id]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (e: MouseEvent | KeyboardEvent) => {
+      if (
+        e instanceof KeyboardEvent
+          ? e.key === "Escape"
+          : !(e.target as Element).closest?.(".admin-menu")
+      )
+        setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [menuOpen]);
   const toggleDisabled = async () => {
     setBusy(true);
     setError("");
@@ -842,9 +1106,15 @@ function SkillPage() {
     <main
       className={`page skill-page ${loaded.metadata.disabled ? "is-disabled-detail" : ""}`}
     >
-      <Link to="/" className="back-link">
-        <ArrowLeft size={15} /> Library
-      </Link>
+      {loaded.metadata.kind === "bundle" ? (
+        <Link to="/bundles" className="back-link">
+          <ArrowLeft size={15} /> Bundles
+        </Link>
+      ) : (
+        <Link to="/" className="back-link">
+          <ArrowLeft size={15} /> Library
+        </Link>
+      )}
       <header className="skill-hero">
         <SkillIconView icon={loaded.metadata.icon} />
         <div className="skill-hero-text">
@@ -856,19 +1126,40 @@ function SkillPage() {
                 {t.replaceAll("-", " ")}
               </span>
             ))}
-            <span className={`status-badge ${loaded.metadata.disabled ? "" : "ok"}`}>
-              {loaded.metadata.disabled ? "Paused" : "Live"}
-            </span>
-            <span>
-              Revision <code>{loaded.revision.slice(0, 8)}</code>
-            </span>
+            {connected && !loaded.metadata.disabled && (
+              <span className="skill-available">
+                <Check size={14} /> Available to your agents
+              </span>
+            )}
             {updated && <span>Updated {date(updated)}</span>}
             <span>
-              {visibleFiles.length} {visibleFiles.length === 1 ? "file" : "files"}
+              {loaded.metadata.kind === "bundle"
+                ? `${loaded.metadata.members.length} ${loaded.metadata.members.length === 1 ? "skill" : "skills"}`
+                : `${visibleFiles.length} ${visibleFiles.length === 1 ? "file" : "files"}`}
             </span>
           </div>
         </div>
         <div className="skill-hero-actions">
+          {connected ? (
+            <CopyButton
+              primary
+              label="Copy prompt"
+              text={`Use the ${id} skill from the library.`}
+            />
+          ) : (
+            <Button
+              onClick={() => {
+                const field = document.getElementById("device-name");
+                (field ?? document.querySelector(".install-card"))?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "center",
+                });
+                field?.focus({ preventScroll: true });
+              }}
+            >
+              <Plug size={15} /> Connect my agent
+            </Button>
+          )}
           {loaded.referenceId && (
             <CopyButton
               label="Copy reference"
@@ -879,25 +1170,77 @@ function SkillPage() {
             />
           )}
           {auth.role === "admin" && (
-            <Button variant="outline" onClick={toggleDisabled} disabled={busy}>
-              {loaded.metadata.disabled ? (
-                <>
-                  <PlayCircle size={15} /> Resume
-                </>
-              ) : (
-                <>
-                  <PauseCircle size={15} /> Pause
-                </>
+            <div className="admin-menu">
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label="Admin actions"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                onClick={() => setMenuOpen(!menuOpen)}
+              >
+                <MoreHorizontal size={16} />
+              </Button>
+              {menuOpen && (
+                <div className="menu" role="menu">
+                  <div className="menu-label">Admin</div>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="menu-item"
+                    disabled={busy}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      toggleDisabled();
+                    }}
+                  >
+                    {loaded.metadata.disabled ? <Eye size={15} /> : <EyeOff size={15} />}
+                    <span>
+                      <strong>
+                        {loaded.metadata.disabled ? "Show to agents again" : "Hide from agents"}
+                      </strong>
+                      <span>
+                        {loaded.metadata.disabled
+                          ? "Agents can find and load this skill again."
+                          : "Agents stop seeing this skill. Files, history and bundles are kept. You can bring it back any time."}
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="menu-item"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setMode("history");
+                    }}
+                  >
+                    <Clock size={15} />
+                    <span>
+                      <strong>Version history</strong>
+                      <span>
+                        Revision {loaded.revision.slice(0, 8)} and older versions.
+                      </span>
+                    </span>
+                  </button>
+                </div>
               )}
-            </Button>
+            </div>
           )}
         </div>
       </header>
       <ErrorNote error={error} />
       {loaded.metadata.disabled && (
-        <div className="archive-note" role="status">
-          Paused · unavailable to agents. Files, history and bundle membership
-          are preserved. Resume to make it available again.
+        <div className="archive-note hidden-note" role="status">
+          <EyeOff size={16} />
+          <span>
+            Hidden from agents. Files, history and bundles are kept.
+          </span>
+          {auth.role === "admin" && (
+            <Button variant="outline" disabled={busy} onClick={toggleDisabled}>
+              <Eye size={15} /> Show to agents again
+            </Button>
+          )}
         </div>
       )}
       {loaded.metadata.archived && (
@@ -918,12 +1261,13 @@ function SkillPage() {
           )}
         </div>
       )}
-      {loaded.metadata.kind === "bundle" && (
+      {loaded.metadata.kind === "bundle" && auth.role === "admin" && (
         <BundleComposition loaded={loaded} refresh={refresh} dirty={false} />
       )}
       <div className="skill-layout">
         <aside className="skill-rail">
-          <InstallGuide id={id} revision={loaded.revision} />
+          <InstallGuide id={id} onConnected={setConnected} />
+          {loaded.metadata.kind !== "bundle" && (
           <Panel
             flush
             icon={<Folder size={18} />}
@@ -945,7 +1289,22 @@ function SkillPage() {
                 </button>
               ))}
             </div>
+            {visibleFiles.some((f) => !/\.(md|txt|json)$/i.test(f.path)) && (
+              <details className="settings-disclosure local-copy">
+                <summary>Get a local copy</summary>
+                <p className="field-help">
+                  Only needed when a skill ships scripts. This downloads this
+                  version's files to a folder on your computer and prints the
+                  path:
+                </p>
+                <div className="copy-line">
+                  <code>{`skillbox fetch ${id}@${loaded.revision}`}</code>
+                  <CopyButton text={`skillbox fetch ${id}@${loaded.revision}`} />
+                </div>
+              </details>
+            )}
           </Panel>
+          )}
           {auth.role === "admin" && (
             <SkillIntegrations
               id={id}
@@ -956,6 +1315,39 @@ function SkillPage() {
             />
           )}
         </aside>
+        {loaded.metadata.kind === "bundle" ? (
+          <Panel
+            flush
+            className="skill-content"
+            icon={<Layers size={18} />}
+            title="Skills in this bundle"
+            description="Your agent can load any of them on its own, or all of them by asking for the bundle."
+          >
+            {(loaded.metadata.members as string[])
+              .map((m) => catalog.find((c) => c.id === m))
+              .filter((c): c is SkillSummary => !!c)
+              .map((c) => (
+                <Link
+                  key={c.id}
+                  to="/skills/$id"
+                  params={{ id: c.id }}
+                  className="library-row"
+                >
+                  <SkillIconView icon={c.icon} />
+                  <div className="library-row-text">
+                    <strong>{c.title}</strong>
+                    <p>{c.description}</p>
+                  </div>
+                  {c.kind === "bundle" && (
+                    <div className="library-row-tags">
+                      <span className="tag">bundle</span>
+                    </div>
+                  )}
+                  <ChevronRight size={18} className="library-row-chevron" />
+                </Link>
+              ))}
+          </Panel>
+        ) : (
         <section className="settings-card skill-content">
           <div className="editor-tabs">
             <div>
@@ -1061,6 +1453,7 @@ function SkillPage() {
             <pre className="code-preview">{text}</pre>
           )}
         </section>
+        )}
       </div>
     </main>
   );
@@ -1364,7 +1757,7 @@ function ActivityPage() {
     </main>
   );
 }
-type MyKey = { id: string; name: string; createdAt: string; lastSeen: string | null };
+type MyKey = DeviceKey;
 function MyKeys() {
   const url = window.location.origin;
   const [keys, setKeys] = useState<MyKey[]>([]),
@@ -1447,8 +1840,8 @@ function MyKeys() {
         <Panel
           flush
           icon={<Plug size={18} />}
-          title="Connect my agent"
-          description={`One key per device, so you can revoke a lost laptop without touching the others. Up to ${limit} active keys.`}
+          title="Connected computers"
+          description={`Each computer gets its own key, so you can remove a lost laptop without touching the others. Up to ${limit}.`}
           toolbar={
             <>
               <Input
@@ -1459,7 +1852,7 @@ function MyKeys() {
                 onChange={(e) => setDevice(e.target.value)}
               />
               <Button disabled={busy || !device.trim() || keys.length >= limit}>
-                <KeyRound size={15} /> Create key
+                <Terminal size={15} /> Connect a computer
               </Button>
             </>
           }
@@ -1467,15 +1860,18 @@ function MyKeys() {
           {keys.map((k) => (
             <div className="client-row" key={k.id}>
               <div className="client-avatar">
-                <KeyRound size={18} />
+                <Laptop size={18} />
               </div>
               <div className="client-identity">
-                <strong>{k.name.split(" · ")[0]}</strong>
+                <strong>{deviceName(k)}</strong>
                 <p>
-                  Created {date(k.createdAt)} ·{" "}
-                  {k.lastSeen
-                    ? `last request ${date(k.lastSeen)}`
-                    : "no requests yet"}
+                  {lastUse(k) ? (
+                    <span className="skill-available">
+                      <Check size={13} /> Connected · {usedLabel(k)}
+                    </span>
+                  ) : (
+                    "Not set up yet. Open any skill to get its install command."
+                  )}
                 </p>
               </div>
               <Button
@@ -1531,11 +1927,11 @@ function ConnectPage() {
   return (
     <main className="page connect-page">
       <PageHeader
-        title="Connect an agent"
+        title="My devices"
         description={
           auth.role === "admin"
-            ? "Three steps to give Claude Code, Codex or Cursor access to this library."
-            : "Give Claude Code, Codex or Cursor live access to the library."
+            ? "Your connected computers, plus manual setup for shared agents."
+            : "Computers where your agent is connected to the library. Remove one to cut its access."
         }
       />
       <ErrorNote error={error} />
@@ -1668,6 +2064,11 @@ const connectRoute = createRoute({
   path: "/connect",
   component: ConnectPage,
 });
+const devicesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/devices",
+  component: ConnectPage,
+});
 const router = createRouter({
   defaultViewTransition: !window.matchMedia("(prefers-reduced-motion: reduce)")
     .matches,
@@ -1682,6 +2083,7 @@ const router = createRouter({
     activityRoute,
     settingsRoute,
     connectRoute,
+    devicesRoute,
   ]),
 });
 declare module "@tanstack/react-router" {

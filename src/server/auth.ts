@@ -32,6 +32,11 @@ export async function authenticate(
     if (row) {
       const c = row.clients,
         profile = row.profiles;
+      if (!c.lastUsedAt || Date.parse(c.lastUsedAt) < Date.now() - 60_000)
+        await db
+          .update(clients)
+          .set({ lastUsedAt: new Date().toISOString() })
+          .where(eq(clients.id, c.id));
       return {
         context: requestContext(req),
         id: c.id,

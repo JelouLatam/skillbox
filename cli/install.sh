@@ -5,7 +5,7 @@ origin='__SKILLBOX_ORIGIN__'
 code="${1:-}"
 if [ -z "$code" ]; then
   echo "Usage: curl -fsSL $origin/install | sh -s -- <install-code>" >&2
-  echo "Get an install code on $origin/connect" >&2
+  echo "Get an install code on $origin/devices" >&2
   exit 1
 fi
 if command -v node >/dev/null 2>&1 && node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)'; then

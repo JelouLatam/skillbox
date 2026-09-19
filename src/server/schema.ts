@@ -95,6 +95,7 @@ export const clients = pgTable("clients", {
     .defaultNow(),
   // Set for personal keys created from "Connect my agent".
   ownerEmail: text("owner_email"),
+  lastUsedAt: timestamp("last_used_at", { mode: "string", withTimezone: true }),
 });
 export const installCodes = pgTable("install_codes", {
   hash: text("hash").primaryKey(),

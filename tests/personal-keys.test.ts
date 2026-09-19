@@ -11,6 +11,7 @@ import { userPrincipal } from "../src/server/auth";
 import {
   createMyKey,
   listMyKeys,
+  reinstallMyKey,
   revokeMyKey,
   MAX_ACTIVE_KEYS,
 } from "../src/server/personal-keys";
@@ -139,4 +140,23 @@ test("the install script targets this server and the CLI files it downloads exis
   expect(script).not.toContain("__SKILLBOX_ORIGIN__");
   for (const file of ["skillbox.mjs", "package.mjs", "setup.mjs"])
     expect((await app.request("/cli/" + file)).status).toBe(200);
+});
+
+test("a device counts as connected once its key is used, and reinstall replaces the key", async () => {
+  const p = await person("laptop");
+  const created = await createMyKey(p, "Laptop");
+  expect((await listMyKeys(p))[0].lastUsedAt).toBeNull();
+  const me = (key: string) =>
+    app.request("/api/me", { headers: { Authorization: "Bearer " + key } });
+  expect((await me(created.key)).status).toBe(200);
+  expect((await listMyKeys(p))[0].lastUsedAt).not.toBeNull();
+  const again = await reinstallMyKey(p, created.id);
+  expect((await redeem(created.code)).status).toBe(404);
+  expect((await me(created.key)).status).toBe(401);
+  const redeemed = await (await redeem(again.code)).json();
+  expect((await me(redeemed.key)).status).toBe(200);
+  expect((await listMyKeys(p)).map((k) => k.id)).toEqual([created.id]);
+  await expect(
+    reinstallMyKey(await person("stranger"), created.id),
+  ).rejects.toThrow("not found");
 });

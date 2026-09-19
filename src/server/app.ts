@@ -197,6 +197,11 @@ app.post("/api/my/keys", async (c) => {
     .parse(await c.req.json());
   return c.json(await personalKeys.createMyKey(c.get("principal"), device));
 });
+app.post("/api/my/keys/:id/install", async (c) =>
+  c.json(
+    await personalKeys.reinstallMyKey(c.get("principal"), c.req.param("id")),
+  ),
+);
 app.delete("/api/my/keys/:id", async (c) => {
   await personalKeys.revokeMyKey(c.get("principal"), c.req.param("id"));
   return c.json({ ok: true });
@@ -461,7 +466,7 @@ app.get("/api/clients", async (c) => {
         ownerEmail: clients.ownerEmail,
         lastSeen: sql<
           string | null
-        >`(SELECT max(events.created_at) FROM events WHERE events.client_id=clients.id)`,
+        >`greatest((SELECT max(events.created_at) FROM events WHERE events.client_id=clients.id), ${clients.lastUsedAt})`,
       })
       .from(clients)
       .orderBy(clients.name),
