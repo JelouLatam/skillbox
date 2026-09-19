@@ -80,7 +80,7 @@ import "@fontsource/poppins/500.css";
 import "@fontsource/poppins/600.css";
 import jelouSkillsLogo from "./jelou-skills-logo.svg?raw";
 import jelouSkillsMark from "./jelou-skills-mark.svg?raw";
-import { PageHeader, Panel, EmptyState, UserAvatar } from "./page-kit";
+import { PageHeader, Panel, EmptyState, UserAvatar, usePresence } from "./page-kit";
 import "./cortex-tokens.css";
 import "./styles.css";
 type Me = { name: string; role: string; email: string | null };
@@ -356,6 +356,7 @@ function ProfileMenu({
   const ref = useRef<HTMLDivElement>(null);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   useEffect(() => setOpen(false), [pathname]);
+  const menu = usePresence(open);
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent | KeyboardEvent) => {
@@ -371,8 +372,8 @@ function ProfileMenu({
   }, [open]);
   return (
     <div className="sidebar-bottom" ref={ref}>
-      {open && (
-        <div className="profile-menu" role="menu">
+      {menu.mounted && (
+        <div className="profile-menu" role="menu" data-state={menu.state}>
           <Link to="/devices" role="menuitem">
             <Laptop size={16} /> My devices
           </Link>
@@ -1051,6 +1052,7 @@ function SkillPage() {
     setMode("read");
     refresh().catch((e) => setError(e.message));
   }, [id]);
+  const adminMenu = usePresence(menuOpen);
   useEffect(() => {
     if (!menuOpen) return;
     const close = (e: MouseEvent | KeyboardEvent) => {
@@ -1181,8 +1183,8 @@ function SkillPage() {
               >
                 <MoreHorizontal size={16} />
               </Button>
-              {menuOpen && (
-                <div className="menu" role="menu">
+              {adminMenu.mounted && (
+                <div className="menu" role="menu" data-state={adminMenu.state}>
                   <div className="menu-label">Admin</div>
                   <button
                     type="button"

@@ -5,6 +5,7 @@ import { api } from "./api";
 import { skillReferenceMarkdown } from "../skill-references";
 import type { SkillSummary } from "../shared";
 import { SkillIconView } from "./skill-icon";
+import { usePresence } from "./page-kit";
 export function SkillReference({
   id,
   children,
@@ -70,6 +71,7 @@ export function ReferencePicker({
     [items, setItems] = useState<SkillSummary[]>([]),
     [query, setQuery] = useState(""),
     [error, setError] = useState("");
+  const menu = usePresence(open);
   useEffect(() => {
     if (open)
       api("/skills?limit=500")
@@ -81,8 +83,8 @@ export function ReferencePicker({
       <button type="button" onClick={() => setOpen(!open)}>
         <Link2 size={14} /> Link skill
       </button>
-      {open && (
-        <div className="reference-picker-menu">
+      {menu.mounted && (
+        <div className="reference-picker-menu" data-state={menu.state}>
           <label>
             <Search size={14} />
             <input

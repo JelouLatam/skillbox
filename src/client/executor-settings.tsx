@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Plug, LoaderCircle, RefreshCw, X } from "lucide-react";
 import { api } from "./api";
-import { GatewaySettings } from "./gateway-settings";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 type Integration = {
@@ -51,7 +50,6 @@ export function ExecutorSettings() {
           <p>Workspace integrations. Keys are encrypted and never shown again.</p>
         </div>
       </header>
-      <GatewaySettings />
       <section className="settings-card" aria-labelledby="executor-heading">
         <header className="settings-card-header">
           <div className="settings-card-icon">

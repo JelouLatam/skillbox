@@ -7,6 +7,7 @@ import {
   type SkillIcon,
 } from "../skill-icons";
 import { api } from "./api";
+import { usePresence } from "./page-kit";
 export function SkillIconView({ icon }: { icon?: SkillIcon | null }) {
   const url = skillIconUrl(icon);
   return (
@@ -33,6 +34,7 @@ export function SkillIconEditor({
     [mode, setMode] = useState<"icon" | "emoji" | "image">(
       icon?.kind ?? "icon",
     );
+  const picker = usePresence(open);
   const [query, setQuery] = useState(""),
     [color, setColor] = useState(
       icon?.kind === "icon" ? icon.background : "#526b91",
@@ -79,9 +81,10 @@ export function SkillIconEditor({
       >
         <SkillIconView icon={icon} />
       </button>
-      {open && (
+      {picker.mounted && (
         <div
           className="skill-icon-picker"
+          data-state={picker.state}
           role="dialog"
           aria-label="Skill icon"
         >

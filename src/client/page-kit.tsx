@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 export function PageHeader({
   title,
@@ -160,4 +160,18 @@ export function Segmented<T extends string>({
       ))}
     </div>
   );
+}
+
+/** Keeps a popover mounted briefly after it closes so its exit animation can play. */
+export function usePresence(open: boolean, exitMs = 120) {
+  const [mounted, setMounted] = useState(open);
+  useEffect(() => {
+    if (open) return setMounted(true);
+    const t = setTimeout(() => setMounted(false), exitMs);
+    return () => clearTimeout(t);
+  }, [open, exitMs]);
+  return {
+    mounted: open || mounted,
+    state: open ? "open" : "closed",
+  } as const;
 }

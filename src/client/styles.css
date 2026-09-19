@@ -2894,6 +2894,8 @@ select[multiple] {
   --motion-modal: 220ms;
   --motion-exit: 140ms; /* outgoing route */
   --motion-step: 30ms; /* stagger increment */
+  --motion-pop: 160ms; /* menus and popovers */
+  --motion-pop-exit: 110ms; /* must stay under usePresence's exitMs */
 }
 /* One keyframe for every entrance; elements tune distance/scale via vars. */
 @keyframes motion-in {
@@ -2905,6 +2907,12 @@ select[multiple] {
 @keyframes motion-fade {
   from {
     opacity: 0;
+  }
+}
+@keyframes motion-pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(var(--motion-y, 6px)) scale(var(--motion-s, 1));
   }
 }
 @keyframes motion-out {
@@ -2996,6 +3004,60 @@ details[open] > :not(summary) {
   animation: motion-fade var(--motion-swap) var(--jou-ease) both;
 }
 
+/* --- Menus and popovers: scale from the trigger's edge, reverse on close --- */
+:is(.profile-menu, .admin-menu .menu, .reference-picker-menu, .skill-icon-picker) {
+  --motion-y: -4px;
+  --motion-s: 0.96;
+  transform-origin: top right;
+  animation: motion-in var(--motion-pop) var(--motion-out) both;
+}
+.profile-menu {
+  --motion-y: 4px;
+  transform-origin: bottom center;
+}
+.skill-icon-picker {
+  transform-origin: top left;
+}
+:is(.profile-menu, .admin-menu .menu, .reference-picker-menu, .skill-icon-picker)[data-state="closed"] {
+  pointer-events: none;
+  animation: motion-pop-out var(--motion-pop-exit) var(--motion-in) both;
+}
+.profile-button > svg:last-child {
+  transition: color var(--jou-duration) var(--jou-ease);
+}
+.profile-button[aria-expanded="true"] > svg:last-child {
+  color: var(--foreground);
+}
+.integration-options {
+  --motion-y: -3px;
+  animation: motion-in var(--motion-swap) var(--motion-out) both;
+}
+
+/* --- Hover and focus feedback on controls --- */
+.profile-button,
+.menu-item,
+.profile-menu > :is(a, button),
+.reference-picker-menu button,
+.icon-tabs button {
+  transition:
+    background-color var(--jou-duration) var(--jou-ease),
+    border-color var(--jou-duration) var(--jou-ease),
+    color var(--jou-duration) var(--jou-ease);
+}
+select,
+input:where(:not([type="checkbox"]):not([type="radio"])),
+textarea {
+  transition:
+    border-color var(--jou-duration) var(--jou-ease),
+    box-shadow var(--jou-duration) var(--jou-ease);
+}
+select:hover:not(:focus-visible, :disabled) {
+  border-color: var(--border-strong);
+}
+:is(.menu-item, .profile-menu > :is(a, button)):active {
+  transform: scale(0.99);
+}
+
 /* Reduced motion: zero the clocks so every element lands in its final state
    on the first frame; delays are zeroed too so nothing stays hidden. */
 @media (prefers-reduced-motion: reduce) {
@@ -3005,6 +3067,8 @@ details[open] > :not(summary) {
     --motion-modal: 0ms;
     --motion-exit: 0ms;
     --motion-step: 0ms;
+    --motion-pop: 0ms;
+    --motion-pop-exit: 0ms;
   }
   .app-shell {
     animation: none;
