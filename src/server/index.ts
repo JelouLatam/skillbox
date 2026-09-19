@@ -1,6 +1,6 @@
 import { loadRuntimeSecrets } from "./runtime-env";
 loadRuntimeSecrets();
-const { migrate } = await import("./db");
+const { migrate, connection } = await import("./db");
 const { app } = await import("./app");
 if (
   !process.env.SKILLBOX_ADMIN_TOKEN ||
@@ -16,3 +16,10 @@ const server = Bun.serve({
   maxRequestBodySize: 12_000_000,
 });
 console.log(`Skillbox listening on ${server.hostname}:${server.port}`);
+// Fly stops idle machines with SIGINT; PGlite must flush and close before the process exits.
+for (const signal of ["SIGINT", "SIGTERM"] as const)
+  process.once(signal, async () => {
+    await server.stop();
+    await connection.end();
+    process.exit(0);
+  });

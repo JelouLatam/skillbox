@@ -83,7 +83,7 @@ test("CLI recommend posts natural-language task and preserves server result", as
     const invalid = run(["recommend"]);
     expect(await invalid.exited).not.toBe(0);
     expect(await new Response(invalid.stderr).text()).toContain(
-      "Usage: skillbox recommend <task>",
+      "Usage: jelou-skills recommend <task>",
     );
     expect(requests.length).toBe(1);
   } finally {

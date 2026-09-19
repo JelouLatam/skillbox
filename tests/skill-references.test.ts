@@ -19,3 +19,13 @@ test("parse real Markdown links and definitions, skipping code and images", () =
   const markdown = `[Target](skill://${a})\n[Again](skill://${a})\n[Other][next]\n\n[next]: skill://${b}\n\n![image](skill://00000000-0000-0000-0000-000000000000)\n\n\`[inline](skill://00000000-0000-0000-0000-000000000000)\`\n\n\`\`\`md\n[example](skill://00000000-0000-0000-0000-000000000000)\n\`\`\``;
   expect(extractSkillReferences(markdown)).toEqual([a, b]);
 });
+
+test("long documents are scanned without the quadratic parser", () => {
+  const markdown = `[Target](skill://${a})\n\n` + "*a".repeat(60_000);
+  const started = performance.now();
+  expect(extractSkillReferences(markdown)).toEqual([a]);
+  expect(performance.now() - started).toBeLessThan(500);
+  expect(extractSkillReferences("no references here".repeat(20_000))).toEqual(
+    [],
+  );
+});

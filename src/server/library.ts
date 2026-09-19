@@ -8,7 +8,7 @@ import { parseSkillIcon, type SkillIcon } from "../skill-icons";
 import { createHash, randomUUID } from "node:crypto";
 import matter from "gray-matter";
 import { and, eq, desc, inArray, sql } from "drizzle-orm";
-import { db } from "./db";
+import { db, rowsOf } from "./db";
 import { skills, revisions, events } from "./schema";
 import type { Principal, SkillFile, SkillMetadata } from "../shared";
 import { expandBundles } from "./bundles";
@@ -263,7 +263,8 @@ export async function search(
   const page = rows.slice(0, count);
   const metrics =
     includeMetrics && p.role === "admin" && page.length
-      ? await db.execute(sql`
+      ? rowsOf(
+          await db.execute(sql`
       SELECT s.id,s.package_metrics,
         a.created_at AS "lastAgentReadAt", a.client_name AS "lastAgentReadBy",
         u.created_at AS "lastUsedAt",
@@ -276,7 +277,8 @@ export async function search(
         page.map((s) => sql`${s.id}`),
         sql`, `,
       )})
-    `)
+    `),
+        )
       : [];
   const byId = new Map(
     metrics.map(({ package_metrics, ...m }) => [

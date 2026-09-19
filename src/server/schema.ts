@@ -93,6 +93,23 @@ export const clients = pgTable("clients", {
   createdAt: timestamp("created_at", { mode: "string", withTimezone: true })
     .notNull()
     .defaultNow(),
+  // Set for personal keys created from "Connect my agent".
+  ownerEmail: text("owner_email"),
+  lastUsedAt: timestamp("last_used_at", { mode: "string", withTimezone: true }),
+});
+export const installCodes = pgTable("install_codes", {
+  hash: text("hash").primaryKey(),
+  clientId: text("client_id")
+    .notNull()
+    .references(() => clients.id),
+  // The client key sealed with secret-storage; only its hash lives in `clients`.
+  sealedKey: jsonb("sealed_key")
+    .$type<{ iv: string; tag: string; data: string }>()
+    .notNull(),
+  expiresAt: timestamp("expires_at", {
+    mode: "string",
+    withTimezone: true,
+  }).notNull(),
 });
 export const sessions = pgTable("sessions", {
   hash: text("hash").primaryKey(),
@@ -100,6 +117,20 @@ export const sessions = pgTable("sessions", {
     mode: "string",
     withTimezone: true,
   }).notNull(),
+  // Null for admin-token sessions.
+  userEmail: text("user_email"),
+});
+export const users = pgTable("users", {
+  email: text("email").primaryKey(),
+  name: text("name").notNull(),
+  role: text("role").$type<"admin" | "author" | "member">().notNull(),
+  createdAt: timestamp("created_at", { mode: "string", withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  lastLoginAt: timestamp("last_login_at", {
+    mode: "string",
+    withTimezone: true,
+  }),
 });
 export const events = pgTable("events", {
   context: jsonb("context")

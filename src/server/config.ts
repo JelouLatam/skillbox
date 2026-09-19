@@ -1,3 +1,10 @@
+export const adminEmails = () =>
+  new Set(
+    (process.env.SKILLBOX_ADMIN_EMAILS ?? "")
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
+  );
 export const appOrigin = () =>
   process.env.SKILLBOX_ORIGIN ?? "http://127.0.0.1:4791";
 

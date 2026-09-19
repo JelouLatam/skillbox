@@ -1,16 +1,18 @@
 import * as access from "./access";
 import * as executor from "./executor";
 import * as gateway from "./gateway";
+import * as google from "./google-auth";
+import * as personalKeys from "./personal-keys";
 import { appOrigin as origin, allowedOrigins } from "./config";
 import { parseSkillIcon } from "../skill-icons";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { serveStatic } from "hono/bun";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { eq, desc, lt, and, sql } from "drizzle-orm";
 import { db } from "./db";
-import { clients, sessions, events, profiles } from "./schema";
+import { clients, sessions, events, profiles, users } from "./schema";
 import {
   authenticate,
   isAdminToken,
@@ -24,12 +26,35 @@ import type { Principal } from "../shared";
 import { recommendationInput } from "./recommendations";
 import { compatibilityPage, manifestFor } from "./skill-resources";
 export const app = new Hono<{ Variables: { principal: Principal } }>();
-const loginAttempts: number[] = [];
+/** Failure counters are per caller: a global one lets anyone lock everybody out. */
+function failureCounter(limit: number, max = 4096) {
+  const windows = new Map<string, number[]>();
+  return {
+    exceeded(key: string) {
+      const now = Date.now(),
+        hits = (windows.get(key) ?? []).filter((t) => t > now - 60000);
+      if (hits.length) windows.set(key, hits);
+      else windows.delete(key);
+      return hits.length >= limit;
+    },
+    record(key: string) {
+      if (windows.size >= max && !windows.has(key)) windows.clear();
+      windows.set(key, [...(windows.get(key) ?? []), Date.now()]);
+    },
+  };
+}
+const callerKey = (c: Context) =>
+  c.req.header("Fly-Client-IP") ??
+  c.req.header("X-Forwarded-For")?.split(",")[0]?.trim() ??
+  "unknown";
+const loginAttempts = failureCounter(10);
 app.use("*", async (c, next) => {
   c.header("X-Content-Type-Options", "nosniff");
   c.header("Referrer-Policy", "no-referrer");
   c.header("X-Frame-Options", "DENY");
   c.header("Cache-Control", "no-store");
+  if (origin().startsWith("https:"))
+    c.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   c.header(
     "Content-Security-Policy",
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
@@ -72,22 +97,25 @@ app.post("/api/login", async (c) => {
   const { key } = z
     .object({ key: z.string().min(1).max(512) })
     .parse(await c.req.json());
-  const now = Date.now();
-  while (loginAttempts.length && loginAttempts[0] < now - 60000)
-    loginAttempts.shift();
-  if (loginAttempts.length >= 10)
+  const caller = callerKey(c);
+  if (loginAttempts.exceeded(caller))
     throw new lib.Problem(429, "Too many attempts. Try again in a minute.");
   if (!isAdminToken(key)) {
-    loginAttempts.push(now);
+    loginAttempts.record(caller);
     throw new lib.Problem(401, "Invalid access key");
   }
+  await startSession(c, null);
+  return c.json({ ok: true });
+});
+async function startSession(c: Context, userEmail: string | null) {
   const secret = token();
   await db
     .delete(sessions)
     .where(lt(sessions.expiresAt, new Date().toISOString()));
   await db.insert(sessions).values({
     hash: lib.sha256(secret),
-    expiresAt: new Date(now + 86400000).toISOString(),
+    expiresAt: new Date(Date.now() + 86400000).toISOString(),
+    userEmail,
   });
   setCookie(c, "skillbox_session", secret, {
     httpOnly: true,
@@ -96,7 +124,57 @@ app.post("/api/login", async (c) => {
     path: "/",
     maxAge: 86400,
   });
-  return c.json({ ok: true });
+}
+const redeemFailures = failureCounter(20);
+app.post("/install/redeem", async (c) => {
+  const caller = callerKey(c);
+  if (redeemFailures.exceeded(caller))
+    throw new lib.Problem(429, "Too many attempts. Try again in a minute.");
+  const { code } = z
+    .object({ code: z.string().min(1).max(128) })
+    .parse(await c.req.json());
+  try {
+    return c.json({
+      ...(await personalKeys.redeemInstallCode(code)),
+      origin: origin(),
+    });
+  } catch (e) {
+    redeemFailures.record(caller);
+    throw e;
+  }
+});
+app.get("/api/auth/config", (c) => c.json({ google: !!google.googleConfig() }));
+app.get("/api/auth/google", (c) => {
+  const { url, state, verifier } = google.startGoogleLogin();
+  // Lax, not Strict: the callback is a top-level navigation coming back from Google.
+  setCookie(c, "skillbox_oauth", `${state}.${verifier}`, {
+    httpOnly: true,
+    secure: origin().startsWith("https:"),
+    sameSite: "Lax",
+    path: "/api/auth/google",
+    maxAge: 600,
+  });
+  return c.redirect(url);
+});
+app.get("/api/auth/google/callback", async (c) => {
+  const [state, verifier] = (getCookie(c, "skillbox_oauth") ?? "").split(".");
+  deleteCookie(c, "skillbox_oauth", { path: "/api/auth/google" });
+  const fail = (reason: string) =>
+    c.redirect("/?auth_error=" + encodeURIComponent(reason));
+  const code = c.req.query("code");
+  if (!state || !verifier || !code || c.req.query("state") !== state)
+    return fail("Sign-in expired. Try again.");
+  try {
+    const identity = await google.exchangeGoogleCode(code, verifier);
+    google.assertAllowedIdentity(identity);
+    const user = await google.upsertUser(identity);
+    await startSession(c, user.email);
+    return c.redirect("/");
+  } catch (e) {
+    return fail(
+      e instanceof lib.Problem ? e.message : "Google sign-in failed",
+    );
+  }
 });
 app.post("/api/logout", async (c) => {
   const value = getCookie(c, "skillbox_session");
@@ -117,9 +195,60 @@ app.put("/api/settings/ai-gateway", async (c) => {
   assertAdmin(c.get("principal"));
   return c.json(await gateway.configureGateway(gateway.gatewayInput.parse(await c.req.json())));
 });
-app.get("/api/me", (c) =>
-  c.json({ name: c.get("principal").name, role: c.get("principal").role }),
+app.get("/api/me", (c) => {
+  const p = c.get("principal");
+  return c.json({
+    name: p.name,
+    role: p.role,
+    email: p.id.startsWith("user:") ? p.id.slice(5) : null,
+  });
+});
+app.get("/api/my/keys", async (c) =>
+  c.json({
+    keys: await personalKeys.listMyKeys(c.get("principal")),
+    limit: personalKeys.MAX_ACTIVE_KEYS,
+  }),
 );
+app.post("/api/my/keys", async (c) => {
+  const { device } = z
+    .object({ device: z.string().trim().min(1).max(40) })
+    .strict()
+    .parse(await c.req.json());
+  return c.json(await personalKeys.createMyKey(c.get("principal"), device));
+});
+app.post("/api/my/keys/:id/install", async (c) =>
+  c.json(
+    await personalKeys.reinstallMyKey(c.get("principal"), c.req.param("id")),
+  ),
+);
+app.delete("/api/my/keys/:id", async (c) => {
+  await personalKeys.revokeMyKey(c.get("principal"), c.req.param("id"));
+  return c.json({ ok: true });
+});
+app.get("/api/users", async (c) => {
+  assertAdmin(c.get("principal"));
+  return c.json(
+    await db.select().from(users).orderBy(desc(users.lastLoginAt)),
+  );
+});
+app.patch("/api/users/:email", async (c) => {
+  assertAdmin(c.get("principal"));
+  const { role } = z
+    .object({ role: z.enum(["author", "member"]) })
+    .strict()
+    .parse(await c.req.json());
+  const email = c.req.param("email").toLowerCase();
+  if (google.adminEmails().has(email))
+    throw new lib.Problem(409, "Admins are set with SKILLBOX_ADMIN_EMAILS");
+  const [user] = await db
+    .update(users)
+    .set({ role })
+    .where(eq(users.email, email))
+    .returning();
+  if (!user) throw new lib.Problem(404, "User not found");
+  await personalKeys.rebindKeys(email);
+  return c.json(user);
+});
 app.put("/api/bundles/:id", async (c) => {
   const b = z
     .object({
@@ -354,9 +483,10 @@ app.get("/api/clients", async (c) => {
         profileId: clients.profileId,
         active: clients.active,
         createdAt: clients.createdAt,
+        ownerEmail: clients.ownerEmail,
         lastSeen: sql<
           string | null
-        >`(SELECT max(events.created_at) FROM events WHERE events.client_id=clients.id)`,
+        >`greatest((SELECT max(events.created_at) FROM events WHERE events.client_id=clients.id), ${clients.lastUsedAt})`,
       })
       .from(clients)
       .orderBy(clients.name),
@@ -568,6 +698,19 @@ app.get("/cli/skillbox.mjs", async (c) => {
 app.get("/cli/package.mjs", async (c) => {
   c.header("Content-Type", "text/javascript");
   return c.body(await Bun.file("cli/package.mjs").text());
+});
+app.get("/cli/setup.mjs", async (c) => {
+  c.header("Content-Type", "text/javascript");
+  return c.body(await Bun.file("cli/setup.mjs").text());
+});
+app.get("/install", async (c) => {
+  c.header("Content-Type", "text/x-shellscript; charset=utf-8");
+  return c.body(
+    (await Bun.file("cli/install.sh").text()).replace(
+      "__SKILLBOX_ORIGIN__",
+      origin(),
+    ),
+  );
 });
 app.use("/assets/*", serveStatic({ root: "./dist" }));
 app.get("/favicon.svg", async (c) => {

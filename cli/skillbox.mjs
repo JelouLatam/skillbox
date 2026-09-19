@@ -13,7 +13,7 @@ import { createInterface } from "node:readline";
 import { hash, materialize } from "./package.mjs";
 const configPath =
   process.env.SKILLBOX_CONFIG ??
-  join(homedir(), ".config/skillbox/config.json");
+  join(homedir(), ".config/jelou-skills/config.json");
 let config = {};
 try {
   config = JSON.parse(await readFile(configPath, "utf8"));
@@ -80,6 +80,8 @@ async function request(path, options = {}) {
 }
 async function main() {
   const [command, arg] = process.argv.slice(2);
+  if (["setup", "update", "doctor", "uninstall"].includes(command))
+    return (await import("./setup.mjs")).run(command, process.argv.slice(3));
   if (command === "mcp") {
     const lines = createInterface({
       input: process.stdin,
@@ -113,7 +115,7 @@ async function main() {
               error: { code: -32603, message: e.message },
             }) + "\n",
           );
-        else console.error("Skillbox bridge:", e.message);
+        else console.error("Jelou Skills bridge:", e.message);
       }
     }
     return;
@@ -154,7 +156,7 @@ async function main() {
   }
   if (command === "recommend") {
     const task = process.argv.slice(3).join(" ").trim();
-    if (!task) throw new Error("Usage: skillbox recommend <task>");
+    if (!task) throw new Error("Usage: jelou-skills recommend <task>");
     console.log(
       JSON.stringify(
         await request("/api/skill-recommendations", {
@@ -191,7 +193,7 @@ async function main() {
     return;
   }
   if (command === "manifest") {
-    if (!arg) throw new Error("Usage: skillbox manifest <id>");
+    if (!arg) throw new Error("Usage: jelou-skills manifest <id>");
     console.log(JSON.stringify(await request("/api/skills/" + encodeURIComponent(arg) + "/manifest"), null, 2));
     return;
   }
@@ -207,7 +209,7 @@ async function main() {
     return;
   }
   if (command === "resolve") {
-    if (!arg) throw new Error("Usage: skillbox resolve <bundle-id>");
+    if (!arg) throw new Error("Usage: jelou-skills resolve <bundle-id>");
     const loaded = await request("/api/skills/" + encodeURIComponent(arg));
     if (!loaded.composition) throw new Error("This entry is not a bundle");
     console.log(
@@ -221,7 +223,7 @@ async function main() {
   }
   if (command === "fetch") {
     let [id, revision] = arg?.split("@") ?? [];
-    if (!id) throw new Error("Usage: skillbox fetch id@revision");
+    if (!id) throw new Error("Usage: jelou-skills fetch id@revision");
     const uuid = id.replace(/^skill:\/\//i, "");
     if (
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -249,7 +251,7 @@ async function main() {
       id = process.argv[4];
     if (!id)
       throw new Error(
-        "Usage: skillbox publish directory id expectedRevision (use new for creation)",
+        "Usage: jelou-skills publish directory id expectedRevision (use new for creation)",
       );
     const expected = process.argv[5];
     if (!expected) throw new Error("Expected revision is required");
@@ -287,7 +289,7 @@ async function main() {
           body: JSON.stringify({
             expectedRevision: expected === "new" ? null : expected,
             files,
-            message: "Update from skillbox CLI",
+            message: "Update from jelou-skills CLI",
           }),
         }),
         null,
@@ -297,7 +299,7 @@ async function main() {
     return;
   }
   console.log(
-    "skillbox list | search <query> | recommend <task> | audit | manifest <id> | load <id> | resolve <bundle-id> | fetch <id>@<revision> | publish <directory> <id> <expectedRevision|new> | mcp | configure",
+    "jelou-skills list | search <query> | recommend <task> | audit | manifest <id> | load <id> | resolve <bundle-id> | fetch <id>@<revision> | publish <directory> <id> <expectedRevision|new> | mcp | configure | setup <code> --origin <url> | update | doctor | uninstall",
   );
 }
 main().catch((e) => {

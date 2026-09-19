@@ -1,12 +1,88 @@
 import { packageMetrics } from "../package-metrics";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
+import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { PGlite, type Transaction } from "@electric-sql/pglite";
 import * as schema from "./schema";
-export const connection = postgres(
-  process.env.DATABASE_URL ?? "postgres://localhost/skillbox",
-  { max: 8, onnotice: () => {} },
-);
-export const db = drizzle(connection, { schema });
+
+type Row = Record<string, any>;
+type Query = (
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+) => Promise<Row[]>;
+export type Sql = Query & {
+  begin<T>(fn: (tx: Query) => Promise<T>): Promise<T>;
+  end(): Promise<void>;
+};
+
+function pgliteQuery(client: Pick<PGlite, "query">): Query {
+  return async (strings, ...values) => {
+    const text = strings.reduce((a, s, i) => a + "$" + i + s);
+    return (await client.query<Row>(text, values)).rows;
+  };
+}
+
+function openDatabase() {
+  if (process.env.DATABASE_URL) {
+    const client = postgres(process.env.DATABASE_URL, {
+      max: 8,
+      onnotice: () => {},
+    });
+    return {
+      connection: client as unknown as Sql,
+      db: drizzle(client, { schema }),
+    };
+  }
+  // PGlite is one in-process backend: exactly one process may open a data directory.
+  const pg = new PGlite(process.env.SKILLBOX_DATA_DIR, {
+    // PGlite passes -F (fsync off) by default; a stopped Fly machine must not lose commits.
+    startParams: PGlite.defaultStartParams.filter((p) => p !== "-F"),
+    postgresqlconf: [
+      "shared_buffers = 16MB",
+      "work_mem = 4MB",
+      "maintenance_work_mem = 16MB",
+      "wal_buffers = 1MB",
+    ],
+  });
+  // A single backend means a query outside an open transaction waits for it to end. Code that
+  // reaches the global `db` from inside a transaction would deadlock, so it joins that transaction.
+  const active = new AsyncLocalStorage<Transaction>();
+  const current = () => {
+    const tx = active.getStore();
+    return tx && !tx.closed ? tx : pg;
+  };
+  const client = {
+    query: ((...args: Parameters<PGlite["query"]>) =>
+      current().query(...args)) as PGlite["query"],
+    exec: ((...args: Parameters<PGlite["exec"]>) =>
+      current().exec(...args)) as PGlite["exec"],
+    transaction: <T>(fn: (tx: Transaction) => Promise<T>) => {
+      const tx = active.getStore();
+      if (tx && !tx.closed) return fn(tx);
+      return pg.transaction((tx) => active.run(tx, () => fn(tx)));
+    },
+  };
+  const connection = Object.assign(pgliteQuery(client), {
+    begin: <T>(fn: (tx: Query) => Promise<T>) =>
+      client.transaction((tx) => fn(pgliteQuery(tx))),
+    end: () => pg.close(),
+  });
+  return {
+    connection,
+    db: drizzlePglite({
+      client: client as unknown as PGlite,
+      schema,
+    }) as unknown as ReturnType<typeof drizzle<typeof schema>>,
+  };
+}
+
+export const { connection, db } = openDatabase();
+
+/** postgres-js returns rows directly; PGlite wraps them in `{ rows }`. */
+export const rowsOf = <T = Row>(result: unknown): T[] =>
+  (Array.isArray(result) ? result : (result as { rows: T[] }).rows) as T[];
+
 export async function migrate() {
   await connection`CREATE TABLE IF NOT EXISTS skills (id text PRIMARY KEY,title text NOT NULL,description text NOT NULL,tags jsonb NOT NULL DEFAULT '[]',revision text NOT NULL,search_text text NOT NULL,updated_at timestamptz NOT NULL DEFAULT now())`;
   await connection`ALTER TABLE skills ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'skill', ADD COLUMN IF NOT EXISTS members jsonb NOT NULL DEFAULT '[]', ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false, ADD COLUMN IF NOT EXISTS replacement text`;
@@ -56,6 +132,12 @@ export async function migrate() {
     await connection`SELECT s.id,s.revision,r.files FROM skills s JOIN revisions r ON r.id=s.revision WHERE s.package_metrics IS NULL`;
   for (const row of unmeasured)
     await connection`UPDATE skills SET package_metrics=${JSON.stringify(packageMetrics(row.files))}::jsonb WHERE id=${row.id} AND revision=${row.revision}`;
+  await connection`CREATE TABLE IF NOT EXISTS users (email text PRIMARY KEY,name text NOT NULL,role text NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),last_login_at timestamptz)`;
+  await connection`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_email text REFERENCES users(email) ON DELETE CASCADE`;
+  await connection`ALTER TABLE clients ADD COLUMN IF NOT EXISTS owner_email text`;
+  await connection`ALTER TABLE clients ADD COLUMN IF NOT EXISTS last_used_at timestamptz`;
+  await connection`CREATE INDEX IF NOT EXISTS clients_owner_idx ON clients(owner_email) WHERE owner_email IS NOT NULL`;
+  await connection`CREATE TABLE IF NOT EXISTS install_codes (hash text PRIMARY KEY,client_id text NOT NULL REFERENCES clients(id),sealed_key jsonb NOT NULL,expires_at timestamptz NOT NULL)`;
   await connection`ALTER TABLE skills ADD COLUMN IF NOT EXISTS reference_id text NOT NULL DEFAULT gen_random_uuid()::text`;
   await connection`CREATE UNIQUE INDEX IF NOT EXISTS skills_reference_id_idx ON skills(reference_id)`;
 }

@@ -140,7 +140,12 @@ function provider(
   };
 }
 const timedFetch = (input: string | URL | Request, init?: RequestInit) =>
-  fetch(input, { ...init, signal: AbortSignal.timeout(20000) });
+  // Never follow redirects: the endpoint is operator-supplied and could bounce inward.
+  fetch(input, {
+    ...init,
+    redirect: "error",
+    signal: AbortSignal.timeout(20000),
+  });
 export function authorizeExecutor(code?: string, state?: string) {
   return serial(async () => {
     const c = await read();

@@ -15,8 +15,10 @@ import {
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import { Link } from "@tanstack/react-router";
 import { api, decoded, date } from "./api";
 import { SkillIconView } from "./skill-icon";
+import { PageHeader, Panel, EmptyState, Segmented, UserAvatar } from "./page-kit";
 import type { Permissions, SkillSummary, SkillFile } from "../shared";
 type Profile = {
   id: string;
@@ -32,6 +34,7 @@ type Client = {
   profileId: string;
   active: boolean;
   lastSeen: string | null;
+  ownerEmail?: string | null;
 };
 const blank = () => ({
   name: "",
@@ -117,18 +120,21 @@ export function ProfilesPage() {
   }, []);
   return (
     <main className="page">
-      <header className="standard-heading">
-        <h1>Profiles</h1>
-        <Button
-          onClick={() => {
-            setDraft(blank());
-            setQuery("");
-          }}
-        >
-          <Plus size={16} />
-          New profile
-        </Button>
-      </header>
+      <PageHeader
+        title="Profiles"
+        description="A profile decides which skills a client key can see and what it is allowed to change."
+        actions={
+          <Button
+            onClick={() => {
+              setDraft(blank());
+              setQuery("");
+            }}
+          >
+            <Plus size={16} />
+            New profile
+          </Button>
+        }
+      />
       <ErrorNote error={error} />
       <div className="profile-grid">
         {profiles
@@ -196,6 +202,27 @@ export function ProfilesPage() {
             </section>
           ))}
       </div>
+      {!profiles.length && (
+        <Panel flush>
+          <EmptyState
+            icon={<ShieldCheck size={18} />}
+            title="No profiles yet"
+            description="Create a profile, grant it skills or bundles, then attach client keys to it."
+            action={
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setDraft(blank());
+                  setQuery("");
+                }}
+              >
+                <Plus size={16} />
+                New profile
+              </Button>
+            }
+          />
+        </Panel>
+      )}
       <details className="inactive-profiles">
         <summary>Profiles with only paused clients</summary>
         {profiles
@@ -448,73 +475,101 @@ export function ClientsPage() {
   };
   const visible = clients.filter(
     (c) =>
-      (paused || c.active) &&
+      (paused ? !c.active : c.active) &&
       `${c.name} ${profiles.find((p) => p.id === c.profileId)?.name}`
         .toLowerCase()
         .includes(query.toLowerCase()),
   );
   return (
     <main className="page">
-      <header className="standard-heading">
-        <h1>Clients</h1>
-      </header>
+      <PageHeader
+        title="Clients"
+        description="Each agent gets its own key, tied to a profile. Pause or revoke one without touching the rest."
+      />
       <ErrorNote error={error} />
       {key && (
-        <div className="secret-reveal">
-          <strong>Client key</strong>
-          <p>Copy it now. This key is shown once.</p>
-          <code>{key}</code>
-          <Button onClick={() => navigator.clipboard.writeText(key)}>
-            Copy key
-          </Button>
-          <Button variant="ghost" onClick={() => setKey("")}>
-            Dismiss
-          </Button>
-        </div>
+        <Panel
+          className="secret-panel"
+          icon={<KeyRound size={18} />}
+          title="Client key created"
+          description="Copy it now. This key is shown only once."
+          footer={
+            <>
+              <Button variant="outline" onClick={() => setKey("")}>
+                Dismiss
+              </Button>
+              <Button onClick={() => navigator.clipboard.writeText(key)}>
+                Copy key
+              </Button>
+            </>
+          }
+        >
+          <code className="secret-value">{key}</code>
+        </Panel>
       )}
       <div className="clients-layout">
-        <section>
-          <div className="access-filters">
+        <Panel
+          flush
+          toolbar={
+            <>
             <Input
               aria-label="Find clients"
               placeholder="Find clients…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={paused}
-                onChange={(e) => setPaused(e.target.checked)}
-              />
-              Show paused ({clients.filter((c) => !c.active).length})
-            </label>
-          </div>
+            <Segmented
+              label="Client status"
+              value={paused ? "paused" : "active"}
+              onChange={(v) => setPaused(v === "paused")}
+              options={[
+                {
+                  value: "active",
+                  label: "Active",
+                  count: clients.filter((c) => c.active).length,
+                },
+                {
+                  value: "paused",
+                  label: "Paused",
+                  count: clients.filter((c) => !c.active).length,
+                },
+              ]}
+            />
+            </>
+          }
+        >
           {visible.map((c) => (
             <div
               className={`client-row ${c.active ? "" : "is-paused"}`}
               key={c.id}
             >
-              <div className="client-avatar">
-                <Users size={20} />
-              </div>
+              {c.ownerEmail ? (
+                <UserAvatar name={c.ownerEmail} size={36} />
+              ) : (
+                <div className="client-avatar">
+                  <KeyRound size={18} />
+                </div>
+              )}
               <div className="client-identity">
-                <strong>{c.name}</strong>
-                <p>
-                  {profiles.find((p) => p.id === c.profileId)?.name ??
-                    "Unknown profile"}
+                <strong>{c.ownerEmail ? c.name.split(" · ")[0] : c.name}</strong>
+                <p className="client-meta">
+                  {c.ownerEmail && <span>{c.ownerEmail}</span>}
+                  <span>
+                    {profiles.find((p) => p.id === c.profileId)?.name ??
+                      "Unknown profile"}
+                  </span>
+                  <span
+                    title={
+                      c.lastSeen
+                        ? new Date(c.lastSeen).toLocaleString()
+                        : undefined
+                    }
+                  >
+                    {c.lastSeen
+                      ? `Last request ${date(c.lastSeen)}`
+                      : "No requests yet"}
+                  </span>
                 </p>
-                <small
-                  title={
-                    c.lastSeen
-                      ? new Date(c.lastSeen).toLocaleString()
-                      : undefined
-                  }
-                >
-                  {c.lastSeen
-                    ? `Last request ${date(c.lastSeen)}`
-                    : "No requests recorded"}
-                </small>
               </div>
               <Button
                 variant="ghost"
@@ -536,8 +591,18 @@ export function ClientsPage() {
               </Button>
             </div>
           ))}
-          {!visible.length && <p className="muted">No matching clients</p>}
-        </section>
+          {!visible.length && (
+            <EmptyState
+              icon={<Users size={18} />}
+              title={clients.length ? "No matching clients" : "No clients yet"}
+              description={
+                clients.length
+                  ? "Try another name or switch between Active and Paused."
+                  : "Create a key for each agent that should read this library."
+              }
+            />
+          )}
+        </Panel>
         <form
           className="client-form"
           onSubmit={async (e) => {
@@ -559,7 +624,17 @@ export function ClientsPage() {
             }
           }}
         >
-          <h2>Add client</h2>
+          <Panel
+            icon={<Plus size={18} />}
+            title="Add client"
+            description="The key is shown once, right after you create it."
+            footer={
+              <Button disabled={busy || !profileId || !name.trim()}>
+                <KeyRound size={15} />
+                Create key
+              </Button>
+            }
+          >
           <label>
             Name
             <Input
@@ -584,10 +659,7 @@ export function ClientsPage() {
               ))}
             </select>
           </label>
-          <Button disabled={busy || !profileId || !name.trim()}>
-            <KeyRound size={15} />
-            Create key
-          </Button>
+          </Panel>
         </form>
       </div>
       {editing && (
@@ -660,16 +732,129 @@ export function ClientsPage() {
     </main>
   );
 }
+type DiffLine = { type: "same" | "add" | "del"; text: string; a?: number; b?: number };
+function lineDiff(before: string, after: string): DiffLine[] | null {
+  const a = before.split("\n"),
+    b = after.split("\n");
+  if ((a.length + 1) * (b.length + 1) > 2_000_000) return null;
+  const w = b.length + 1;
+  const lcs = new Int32Array((a.length + 1) * w);
+  for (let i = a.length - 1; i >= 0; i--)
+    for (let j = b.length - 1; j >= 0; j--)
+      lcs[i * w + j] =
+        a[i] === b[j]
+          ? lcs[(i + 1) * w + j + 1] + 1
+          : Math.max(lcs[(i + 1) * w + j], lcs[i * w + j + 1]);
+  const out: DiffLine[] = [];
+  let i = 0,
+    j = 0;
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) {
+      out.push({ type: "same", text: a[i], a: ++i, b: ++j });
+    } else if (j < b.length && (i >= a.length || lcs[i * w + j + 1] >= lcs[(i + 1) * w + j])) {
+      out.push({ type: "add", text: b[j], b: ++j });
+    } else {
+      out.push({ type: "del", text: a[i], a: ++i });
+    }
+  }
+  return out;
+}
+function hunks(lines: DiffLine[], context = 3) {
+  const keep = new Set<number>();
+  lines.forEach((l, i) => {
+    if (l.type !== "same")
+      for (let k = Math.max(0, i - context); k <= Math.min(lines.length - 1, i + context); k++)
+        keep.add(k);
+  });
+  const out: (DiffLine | "gap")[] = [];
+  lines.forEach((l, i) => {
+    if (!keep.has(i)) {
+      if (out.length && out[out.length - 1] !== "gap") out.push("gap");
+      return;
+    }
+    out.push(l);
+  });
+  if (out[out.length - 1] === "gap") out.pop();
+  return out;
+}
+const TEXT_FILE = /\.(md|txt|json|ya?ml|toml|ts|tsx|js|mjs|py|sh|css|html|sql)$/;
+function FileChange({ path, before, after }: { path: string; before?: SkillFile; after?: SkillFile }) {
+  const status = !after ? "Removed" : !before ? "Added" : "Changed";
+  const diff =
+    TEXT_FILE.test(path) &&
+    lineDiff(before ? decoded(before.content) : "", after ? decoded(after.content) : "");
+  const added = diff ? diff.filter((l) => l.type === "add").length : 0,
+    removed = diff ? diff.filter((l) => l.type === "del").length : 0;
+  return (
+    <section className="file-change">
+      <header>
+        <FileText size={15} />
+        <strong>{path}</strong>
+        <span className={`change-badge ${status.toLowerCase()}`}>{status}</span>
+        {diff && (
+          <span className="change-count">
+            <b className="add">+{added}</b> <b className="del">−{removed}</b>
+          </span>
+        )}
+      </header>
+      {diff ? (
+        <div className="diff-view">
+          {hunks(diff).map((l, i) =>
+            l === "gap" ? (
+              <div className="diff-gap" key={i}>
+                ⋯
+              </div>
+            ) : (
+              <div className={`diff-line ${l.type}`} key={i}>
+                <span className="diff-num">{l.a ?? ""}</span>
+                <span className="diff-num">{l.b ?? ""}</span>
+                <span className="diff-mark">{l.type === "add" ? "+" : l.type === "del" ? "−" : ""}</span>
+                <code>{l.text || " "}</code>
+              </div>
+            ),
+          )}
+        </div>
+      ) : (
+        <p className="field-help file-change-binary">
+          {after ? `${after.size.toLocaleString()} bytes` : "File removed"}
+          {before && after ? ` (was ${before.size.toLocaleString()} bytes)` : ""}
+        </p>
+      )}
+    </section>
+  );
+}
+function proposalAuthor(clientName: string) {
+  const [device, owner] = clientName.split(" · ");
+  return owner?.includes("@")
+    ? { name: owner, device }
+    : { name: clientName, device: "" };
+}
 export function ProposalsPage() {
   const [items, setItems] = useState<any[]>([]),
     [selected, setSelected] = useState<any>(null),
     [error, setError] = useState(""),
-    [history, setHistory] = useState(false),
+    [tab, setTab] = useState<"pending" | "reviewed">("pending"),
     [busy, setBusy] = useState(false);
-  const refresh = () => api("/proposals").then(setItems);
+  const refresh = () =>
+    api("/proposals").then((all) => {
+      setItems(all);
+      return all;
+    });
   useEffect(() => {
-    refresh().catch((e) => setError(e.message));
+    refresh()
+      .then((all: any[]) => {
+        const first = all.find((p) => p.status === "pending");
+        if (first) open(first.id);
+      })
+      .catch((e) => setError(e.message));
   }, []);
+  const open = async (id: string) => {
+    try {
+      setSelected(await api(`/proposals/${id}`));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
   const review = async (decision: string) => {
     setBusy(true);
     setError("");
@@ -678,128 +863,237 @@ export function ProposalsPage() {
         method: "POST",
         body: JSON.stringify({ decision }),
       });
-      setSelected(null);
       await refresh();
+      await open(selected.id);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
   };
+  const pending = items.filter((p) => p.status === "pending");
+  const visible = tab === "pending" ? pending : items.filter((p) => p.status !== "pending");
   const base: SkillFile[] = selected?.baseFiles ?? [],
     next: SkillFile[] = selected?.files ?? [];
-  const paths = [...new Set([...base, ...next].map((f) => f.path))].filter(
-    (path) => {
-      const a = base.find((f) => f.path === path),
-        b = next.find((f) => f.path === path);
-      return a?.sha256 !== b?.sha256 || a?.executable !== b?.executable;
-    },
-  );
+  const paths = [...new Set([...base, ...next].map((f) => f.path))].filter((path) => {
+    const a = base.find((f) => f.path === path),
+      b = next.find((f) => f.path === path);
+    return a?.sha256 !== b?.sha256 || a?.executable !== b?.executable;
+  });
+  const author = selected && proposalAuthor(selected.clientName);
   return (
     <main className="page">
-      <header className="standard-heading">
-        <h1>Proposals</h1>
-        <label className="checkbox-label">
-          <input
-            type="checkbox"
-            checked={history}
-            onChange={(e) => setHistory(e.target.checked)}
+      <PageHeader
+        title="Proposals"
+        description="Changes suggested by authors' agents. Nothing reaches the library until you approve it."
+        actions={
+          <Segmented
+            label="Proposal status"
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: "pending", label: "Pending", count: pending.length },
+              { value: "reviewed", label: "Reviewed", count: items.length - pending.length },
+            ]}
           />
-          Show reviewed
-        </label>
-      </header>
+        }
+      />
       <ErrorNote error={error} />
+      {!visible.length ? (
+        <Panel>
+          <EmptyState
+            icon={<FileText size={18} />}
+            title={tab === "pending" ? "Nothing to review" : "No reviewed proposals yet"}
+            description={
+              tab === "pending"
+                ? "When an author's agent proposes a change to a skill, it shows up here with the exact lines that change."
+                : "Approved and rejected proposals are kept here."
+            }
+          />
+        </Panel>
+      ) : (
       <div className="proposal-layout">
-        <section>
-          {items
-            .filter((p) => history || p.status === "pending")
-            .map((p) => (
+        <Panel flush className="proposal-list">
+          {visible.map((p) => {
+            const who = proposalAuthor(p.clientName);
+            return (
               <button
-                className={`proposal-row ${selected?.id === p.id ? "selected" : ""}`}
+                className={`proposal-item ${selected?.id === p.id ? "selected" : ""}`}
                 key={p.id}
-                onClick={async () => {
-                  try {
-                    setSelected(await api(`/proposals/${p.id}`));
-                  } catch (e) {
-                    setError((e as Error).message);
-                  }
-                }}
+                onClick={() => open(p.id)}
               >
-                <FileText size={18} />
-                <span>
-                  <strong>{p.skillId}</strong>
-                  <span>{p.message}</span>
+                <UserAvatar name={who.name} size={36} />
+                <span className="proposal-item-text">
+                  <strong>{p.message}</strong>
                   <small>
-                    {p.clientName} · {date(p.createdAt)} · {p.status}
+                    {who.name} · {p.skillId} · {date(p.createdAt)}
                   </small>
                 </span>
+                {p.status !== "pending" && (
+                  <span className={`change-badge ${p.status === "approved" ? "added" : "removed"}`}>
+                    {p.status === "approved" ? "Approved" : "Rejected"}
+                  </span>
+                )}
               </button>
-            ))}
-          {!items.some((p) => history || p.status === "pending") && (
-            <p className="muted">No pending proposals</p>
-          )}
-        </section>
-        {selected && (
-          <section className="proposal-review">
-            <header>
-              <h2>{selected.skillId}</h2>
-              {selected.status === "pending" && (
-                <div>
-                  <Button
-                    disabled={busy}
-                    variant="ghost"
-                    onClick={() => review("reject")}
-                  >
-                    <X size={15} />
-                    Reject
+            );
+          })}
+        </Panel>
+        {selected ? (
+          <Panel flush className="proposal-detail">
+            <header className="proposal-detail-head">
+              <UserAvatar name={author.name} size={40} />
+              <div>
+                <strong>
+                  {author.name} proposed a change to{" "}
+                  <Link to="/skills/$id" params={{ id: selected.skillId }}>
+                    {selected.skillId}
+                  </Link>
+                </strong>
+                <small>
+                  {author.device && `From ${author.device} · `}
+                  {date(selected.createdAt)} · {paths.length}{" "}
+                  {paths.length === 1 ? "file" : "files"}
+                </small>
+              </div>
+              {selected.status === "pending" ? (
+                <div className="proposal-actions">
+                  <Button disabled={busy} variant="outline" onClick={() => review("reject")}>
+                    <X size={15} /> Reject
                   </Button>
                   <Button disabled={busy} onClick={() => review("approve")}>
-                    <Check size={15} />
-                    Approve
+                    <Check size={15} /> Approve
                   </Button>
                 </div>
+              ) : (
+                <span className={`change-badge ${selected.status === "approved" ? "added" : "removed"}`}>
+                  {selected.status === "approved" ? "Approved" : "Rejected"}
+                  {selected.reviewer ? ` by ${selected.reviewer}` : ""}
+                </span>
               )}
             </header>
-            <p>{selected.message}</p>
-            {paths.map((path) => (
-              <details key={path} open={paths.length === 1}>
-                <summary>
-                  {path}{" "}
-                  {!next.some((f) => f.path === path)
-                    ? "· Removed"
-                    : !base.some((f) => f.path === path)
-                      ? "· Added"
-                      : "· Changed"}
-                </summary>
-                <div className="proposal-diff">
-                  {[base, next].map((files, i) => {
-                    const file = files.find((f) => f.path === path);
-                    return (
-                      <div key={i}>
-                        <small>
-                          {i ? "Proposed" : "Original"}
-                          {file?.executable ? " · Executable" : ""}
-                        </small>
-                        {file ? (
-                          <pre>
-                            {/\.(md|txt|json|ya?ml|toml|ts|tsx|js|mjs|py|sh|css|html|sql)$/.test(
-                              path,
-                            )
-                              ? decoded(file.content)
-                              : `${file.size} bytes · SHA-256 ${file.sha256}`}
-                          </pre>
-                        ) : (
-                          <p>Not present</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </details>
-            ))}
-          </section>
+            <blockquote className="proposal-message">{selected.message}</blockquote>
+            <div className="proposal-files">
+              {paths.map((path) => (
+                <FileChange
+                  key={path}
+                  path={path}
+                  before={base.find((f) => f.path === path)}
+                  after={next.find((f) => f.path === path)}
+                />
+              ))}
+            </div>
+          </Panel>
+        ) : (
+          <Panel className="proposal-detail">
+            <EmptyState
+              icon={<FileText size={18} />}
+              title="Select a proposal"
+              description="See who proposed it, why, and exactly which lines change."
+            />
+          </Panel>
         )}
       </div>
+      )}
+    </main>
+  );
+}
+type User = {
+  email: string;
+  name: string;
+  role: "admin" | "author" | "member";
+  lastLoginAt: string | null;
+};
+const roleLabels: Record<User["role"], string> = {
+  admin: "Admin",
+  author: "Author",
+  member: "Member",
+};
+export function PeoplePage() {
+  const [users, setUsers] = useState<User[]>([]),
+    [query, setQuery] = useState(""),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState("");
+  const refresh = () => api("/users").then(setUsers);
+  useEffect(() => {
+    refresh().catch((e) => setError(e.message));
+  }, []);
+  const visible = users.filter((u) =>
+    (u.name + " " + u.email).toLowerCase().includes(query.toLowerCase()),
+  );
+  const setRole = async (u: User, role: User["role"]) => {
+    setBusy(u.email);
+    setError("");
+    try {
+      await api(`/users/${encodeURIComponent(u.email)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ role }),
+      });
+      await refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <main className="page">
+      <PageHeader
+        title="People"
+        description="Everyone who has signed in with Google. Members read the library; authors can also propose changes. Admins are set with SKILLBOX_ADMIN_EMAILS."
+      />
+      <ErrorNote error={error} />
+      <Panel
+        flush
+        toolbar={
+          <Input
+            aria-label="Find people"
+            placeholder="Find people…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        }
+      >
+        {visible.map((u) => (
+          <div className="client-row" key={u.email}>
+            <UserAvatar name={u.name} seed={u.email} size={36} />
+            <div className="client-identity">
+              <strong>{u.name}</strong>
+              <p>{u.email}</p>
+              <small>
+                {u.lastLoginAt
+                  ? `Last sign-in ${date(u.lastLoginAt)}`
+                  : "Never signed in"}
+              </small>
+            </div>
+            {u.role === "admin" ? (
+              <span className="status-badge">{roleLabels.admin}</span>
+            ) : (
+              <select
+                aria-label={`Role for ${u.name}`}
+                value={u.role}
+                disabled={busy === u.email}
+                onChange={(e) => setRole(u, e.target.value as User["role"])}
+              >
+                <option value="member">{roleLabels.member}</option>
+                <option value="author">{roleLabels.author}</option>
+              </select>
+            )}
+          </div>
+        ))}
+        {!visible.length && (
+          <EmptyState
+            icon={<Users size={18} />}
+            title={
+              users.length ? "No matching people" : "No one has signed in yet"
+            }
+            description={
+              users.length
+                ? "Try another name or email."
+                : "People appear here after their first Google sign-in."
+            }
+          />
+        )}
+      </Panel>
     </main>
   );
 }
