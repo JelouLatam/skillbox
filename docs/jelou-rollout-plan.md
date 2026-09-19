@@ -84,6 +84,12 @@ and the admin sees the full administration.
 
 ## Phase 3 — Personal keys ("Connect my agent")
 
+Status (2026-09-18): implemented (`src/server/personal-keys.ts`, "Connect my agent" on the Connect
+page, tests in `tests/personal-keys.test.ts`). Profiles come from `SKILLBOX_MEMBER_PROFILE` and
+`SKILLBOX_AUTHOR_PROFILE` (profile names; authors and admins get the author profile). Install codes
+are redeemed with `POST /install/redeem`, which the Phase 4 installer will call; until then the page
+shows the key and a `claude mcp add` command.
+
 1. `clients` gets `owner_email`. Default profile `jelou-read` (all skills, read-only); authors get one
    that can propose.
 2. "Connect my agent" page: the user names the device ("MacBook"), the page creates a key tied to their

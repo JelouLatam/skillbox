@@ -93,6 +93,22 @@ export const clients = pgTable("clients", {
   createdAt: timestamp("created_at", { mode: "string", withTimezone: true })
     .notNull()
     .defaultNow(),
+  // Set for personal keys created from "Connect my agent".
+  ownerEmail: text("owner_email"),
+});
+export const installCodes = pgTable("install_codes", {
+  hash: text("hash").primaryKey(),
+  clientId: text("client_id")
+    .notNull()
+    .references(() => clients.id),
+  // The client key sealed with secret-storage; only its hash lives in `clients`.
+  sealedKey: jsonb("sealed_key")
+    .$type<{ iv: string; tag: string; data: string }>()
+    .notNull(),
+  expiresAt: timestamp("expires_at", {
+    mode: "string",
+    withTimezone: true,
+  }).notNull(),
 });
 export const sessions = pgTable("sessions", {
   hash: text("hash").primaryKey(),

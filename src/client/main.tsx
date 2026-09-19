@@ -1659,8 +1659,141 @@ function ActivityPage() {
     </main>
   );
 }
+type MyKey = { id: string; name: string; createdAt: string; lastSeen: string | null };
+function MyKeys() {
+  const url = window.location.origin;
+  const [keys, setKeys] = useState<MyKey[]>([]),
+    [limit, setLimit] = useState(5),
+    [device, setDevice] = useState(""),
+    [created, setCreated] = useState<{ key: string } | null>(null),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false);
+  const refresh = () =>
+    api("/my/keys").then((r) => {
+      setKeys(r.keys);
+      setLimit(r.limit);
+    });
+  useEffect(() => {
+    refresh().catch((e) => setError(e.message));
+  }, []);
+  const claudeCommand = created
+    ? `claude mcp add --scope user --transport http skillbox ${url}/mcp --header "Authorization: Bearer ${created.key}"`
+    : "";
+  return (
+    <>
+      <ErrorNote error={error} />
+      {created && (
+        <Panel
+          icon={<KeyRound size={18} />}
+          title="Your new key"
+          description="Shown only once. Run the command in a terminal to add the library to Claude Code, or use the key in any MCP client."
+          footer={
+            <Button variant="outline" onClick={() => setCreated(null)}>
+              Done
+            </Button>
+          }
+        >
+          <div className="code-block command-block">
+            <CopyButton text={claudeCommand} />
+            <pre>{claudeCommand}</pre>
+          </div>
+          <div className="copy-line">
+            <code>{created.key}</code>
+            <CopyButton text={created.key} label="Copy key" />
+          </div>
+        </Panel>
+      )}
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          setError("");
+          try {
+            setCreated(
+              await api("/my/keys", {
+                method: "POST",
+                body: JSON.stringify({ device }),
+              }),
+            );
+            setDevice("");
+            await refresh();
+          } catch (e) {
+            setError((e as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <Panel
+          flush
+          icon={<Plug size={18} />}
+          title="Connect my agent"
+          description={`One key per device, so you can revoke a lost laptop without touching the others. Up to ${limit} active keys.`}
+          toolbar={
+            <>
+              <Input
+                aria-label="Device name"
+                placeholder="Device name, e.g. MacBook"
+                maxLength={40}
+                value={device}
+                onChange={(e) => setDevice(e.target.value)}
+              />
+              <Button disabled={busy || !device.trim() || keys.length >= limit}>
+                <KeyRound size={15} /> Create key
+              </Button>
+            </>
+          }
+        >
+          {keys.map((k) => (
+            <div className="client-row" key={k.id}>
+              <div className="client-avatar">
+                <KeyRound size={18} />
+              </div>
+              <div className="client-identity">
+                <strong>{k.name.split(" · ")[0]}</strong>
+                <p>
+                  Created {date(k.createdAt)} ·{" "}
+                  {k.lastSeen
+                    ? `last request ${date(k.lastSeen)}`
+                    : "no requests yet"}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={`Revoke ${k.name}`}
+                title="Revoke"
+                disabled={busy}
+                onClick={async () => {
+                  setError("");
+                  try {
+                    await api(`/my/keys/${k.id}`, { method: "DELETE" });
+                    await refresh();
+                  } catch (e) {
+                    setError((e as Error).message);
+                  }
+                }}
+              >
+                <Trash2 size={16} />
+              </Button>
+            </div>
+          ))}
+          {!keys.length && (
+            <EmptyState
+              icon={<KeyRound size={18} />}
+              title="No keys yet"
+              description="Name this device and create a key to connect Claude Code, Codex or Cursor."
+            />
+          )}
+        </Panel>
+      </form>
+    </>
+  );
+}
 function ConnectPage() {
   const url = window.location.origin;
+  const auth = useContext(Auth);
   const [error, setError] = useState("");
   const snippet = JSON.stringify(
     {
@@ -1679,9 +1812,16 @@ function ConnectPage() {
     <main className="page connect-page">
       <PageHeader
         title="Connect an agent"
-        description="Three steps to give Claude Code, Codex or Cursor access to this library."
+        description={
+          auth.role === "admin"
+            ? "Three steps to give Claude Code, Codex or Cursor access to this library."
+            : "Give Claude Code, Codex or Cursor live access to the library."
+        }
       />
       <ErrorNote error={error} />
+      {auth.email && <MyKeys />}
+      {auth.role === "admin" && (
+      <>
       <Panel
         icon={<span className="step-number">1</span>}
         title="Create a client key"
@@ -1728,9 +1868,17 @@ function ConnectPage() {
           </p>
         </details>
       </Panel>
+      </>
+      )}
       <Panel
-        icon={<span className="step-number">3</span>}
-        title="Install the bootstrap skill"
+        icon={
+          auth.role === "admin" ? (
+            <span className="step-number">3</span>
+          ) : (
+            <BookOpen size={18} />
+          )
+        }
+        title={auth.role === "admin" ? "Install the bootstrap skill" : "Install the library skill"}
         description="It teaches your agent to browse the library at task start, load the right workflow, and fetch scripts on the right machine."
         footer={
           <Button variant="outline" asChild>

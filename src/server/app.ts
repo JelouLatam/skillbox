@@ -2,6 +2,7 @@ import * as access from "./access";
 import * as executor from "./executor";
 import * as gateway from "./gateway";
 import * as google from "./google-auth";
+import * as personalKeys from "./personal-keys";
 import { appOrigin as origin, allowedOrigins } from "./config";
 import { parseSkillIcon } from "../skill-icons";
 import { Hono, type Context } from "hono";
@@ -103,6 +104,26 @@ async function startSession(c: Context, userEmail: string | null) {
     maxAge: 86400,
   });
 }
+const redeemFailures: number[] = [];
+app.post("/install/redeem", async (c) => {
+  const now = Date.now();
+  while (redeemFailures.length && redeemFailures[0] < now - 60000)
+    redeemFailures.shift();
+  if (redeemFailures.length >= 20)
+    throw new lib.Problem(429, "Too many attempts. Try again in a minute.");
+  const { code } = z
+    .object({ code: z.string().min(1).max(128) })
+    .parse(await c.req.json());
+  try {
+    return c.json({
+      ...(await personalKeys.redeemInstallCode(code)),
+      origin: origin(),
+    });
+  } catch (e) {
+    redeemFailures.push(now);
+    throw e;
+  }
+});
 app.get("/api/auth/config", (c) => c.json({ google: !!google.googleConfig() }));
 app.get("/api/auth/google", (c) => {
   const { url, state, verifier } = google.startGoogleLogin();
@@ -162,6 +183,23 @@ app.get("/api/me", (c) => {
     role: p.role,
     email: p.id.startsWith("user:") ? p.id.slice(5) : null,
   });
+});
+app.get("/api/my/keys", async (c) =>
+  c.json({
+    keys: await personalKeys.listMyKeys(c.get("principal")),
+    limit: personalKeys.MAX_ACTIVE_KEYS,
+  }),
+);
+app.post("/api/my/keys", async (c) => {
+  const { device } = z
+    .object({ device: z.string().trim().min(1).max(40) })
+    .strict()
+    .parse(await c.req.json());
+  return c.json(await personalKeys.createMyKey(c.get("principal"), device));
+});
+app.delete("/api/my/keys/:id", async (c) => {
+  await personalKeys.revokeMyKey(c.get("principal"), c.req.param("id"));
+  return c.json({ ok: true });
 });
 app.get("/api/users", async (c) => {
   assertAdmin(c.get("principal"));
@@ -420,6 +458,7 @@ app.get("/api/clients", async (c) => {
         profileId: clients.profileId,
         active: clients.active,
         createdAt: clients.createdAt,
+        ownerEmail: clients.ownerEmail,
         lastSeen: sql<
           string | null
         >`(SELECT max(events.created_at) FROM events WHERE events.client_id=clients.id)`,

@@ -1360,6 +1360,11 @@ select option {
   margin: 0;
   color: var(--foreground);
 }
+.command-block pre {
+  padding-right: 80px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 .connect-note {
   display: flex;
   gap: 13px;
