@@ -5,11 +5,11 @@ import {
   ProposalsPage,
 } from "./access-pages";
 import { referenceId, skillReferenceMarkdown } from "../skill-references";
-import { SkillReference, ReferencePicker } from "./skill-reference";
+import { SkillReference } from "./skill-reference";
 import { ExecutorSettings, SkillIntegrations } from "./executor-settings";
 import { isIconAsset } from "../package-metrics";
 import { SkillMetrics, LENGTH_BANDS, lengthBand } from "./skill-metrics";
-import { SkillIconView, SkillIconEditor } from "./skill-icon";
+import { SkillIconView } from "./skill-icon";
 import React, {
   useEffect,
   useState,
@@ -26,7 +26,6 @@ import {
   Outlet,
   Link,
   useNavigate,
-  useBlocker,
   useRouterState,
 } from "@tanstack/react-router";
 import {
@@ -48,7 +47,6 @@ import {
   LogOut,
   Clock,
   Save,
-  RotateCcw,
   Terminal,
   BookOpen,
   PanelLeftClose,
@@ -783,21 +781,132 @@ function LibraryPage() {
     </main>
   );
 }
+function InstallGuide({ id, revision }: { id: string; revision: string }) {
+  const auth = useContext(Auth);
+  const url = window.location.origin;
+  const [devices, setDevices] = useState<number | null>(null),
+    [adding, setAdding] = useState(false),
+    [device, setDevice] = useState(""),
+    [code, setCode] = useState(""),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!auth.email) return;
+    api("/my/keys")
+      .then((r) => setDevices(r.keys.length))
+      .catch(() => setDevices(0));
+  }, [auth.email]);
+  const command = `curl -fsSL ${url}/install | sh -s -- ${code}`;
+  const prompt = `Use the ${id} skill from the library.`;
+  const fetchCommand = `skillbox fetch ${id}@${revision}`;
+  const showForm = auth.email && !code && (devices === 0 || adding);
+  return (
+    <Panel
+      className="install-guide"
+      icon={<Plug size={18} />}
+      title="Use this skill"
+      description="Skills load live from the library. Connect your agent once and every skill, and every update, is ready to use."
+    >
+      <ol className="install-steps">
+        <li>
+          <span className="step-number">1</span>
+          <div>
+            <strong>Connect your agent</strong>
+            <p>Once per device. Works with Claude Code, Codex and Cursor.</p>
+            {!auth.email ? (
+              <p className="field-help">
+                Sign in with Google to get a personal install command.
+              </p>
+            ) : code ? (
+              <>
+                <div className="code-block command-block">
+                  <CopyButton text={command} />
+                  <pre>{command}</pre>
+                </div>
+                <p className="field-help">
+                  Paste it in a terminal on that device within 10 minutes, then
+                  restart your agent.
+                </p>
+              </>
+            ) : showForm ? (
+              <form
+                className="install-form"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setBusy(true);
+                  setError("");
+                  try {
+                    const r = await api("/my/keys", {
+                      method: "POST",
+                      body: JSON.stringify({ device }),
+                    });
+                    setCode(r.code);
+                    setDevices((d) => (d ?? 0) + 1);
+                  } catch (e) {
+                    setError((e as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <Input
+                  aria-label="Device name"
+                  placeholder="Device name, e.g. MacBook"
+                  maxLength={40}
+                  value={device}
+                  onChange={(e) => setDevice(e.target.value)}
+                />
+                <Button disabled={busy || !device.trim()}>
+                  <Terminal size={15} /> Get install command
+                </Button>
+                <ErrorNote error={error} />
+              </form>
+            ) : devices === null ? null : (
+              <p className="install-connected">
+                <Check size={15} /> Connected on {devices}{" "}
+                {devices === 1 ? "device" : "devices"} ·{" "}
+                <button type="button" onClick={() => setAdding(true)}>
+                  Add a device
+                </button>
+              </p>
+            )}
+          </div>
+        </li>
+        <li>
+          <span className="step-number">2</span>
+          <div>
+            <strong>Ask for it</strong>
+            <p>Your agent finds skills on its own. To be explicit, say:</p>
+            <div className="copy-line prompt-line">
+              <code>{prompt}</code>
+              <CopyButton text={prompt} />
+            </div>
+          </div>
+        </li>
+      </ol>
+      <details className="settings-disclosure">
+        <summary>Need the files on disk?</summary>
+        <p className="field-help">
+          Only for skills with scripts or assets. After connecting, this
+          downloads this exact revision and prints its folder:
+        </p>
+        <div className="copy-line">
+          <code>{fetchCommand}</code>
+          <CopyButton text={fetchCommand} />
+        </div>
+      </details>
+    </Panel>
+  );
+}
 function SkillPage() {
   const { id } = skillRoute.useParams();
-  const sourceRef = useRef<HTMLTextAreaElement>(null);
   const [loaded, setLoaded] = useState<any>(null),
     [files, setFiles] = useState<SkillFile[]>([]),
     [path, setPath] = useState("SKILL.md"),
-    [text, setText] = useState(""),
-    [mode, setMode] = useState<"read" | "edit" | "history">("read"),
+    [mode, setMode] = useState<"read" | "source" | "history">("read"),
     [history, setHistory] = useState<any[]>([]),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
-    [dirty, setDirty] = useState(false),
-    [saved, setSaved] = useState(false),
-    [fileDraft, setFileDraft] = useState(""),
-    [bufferEdited, setBufferEdited] = useState(false);
+    [busy, setBusy] = useState(false);
   const auth = useContext(Auth);
   const refresh = async () => {
     const l = await api("/skills/" + id);
@@ -809,60 +918,13 @@ function SkillPage() {
     setFiles(b.files);
     setHistory(h);
     setPath("SKILL.md");
-    setText(
-      decoded(b.files.find((f: SkillFile) => f.path === "SKILL.md").content),
-    );
-    setDirty(false);
-    setBufferEdited(false);
   };
   useEffect(() => {
     setLoaded(null);
     setError("");
+    setMode("read");
     refresh().catch((e) => setError(e.message));
   }, [id]);
-  useBlocker({
-    shouldBlockFn: () => dirty && !window.confirm("Discard unsaved changes?"),
-    enableBeforeUnload: dirty,
-  });
-  const stash = async () => {
-    if (!bufferEdited) return [...files];
-    const existing = files.find((f) => f.path === path);
-    return files
-      .map((f) => (f.path === path ? null : f))
-      .filter(Boolean)
-      .concat(
-        await encodedFile(path, text, existing?.executable),
-      ) as SkillFile[];
-  };
-  const choose = async (p: string) => {
-    const next = await stash();
-    setFiles(next);
-    setPath(p);
-    setText(decoded(next.find((f) => f.path === p)!.content));
-    setBufferEdited(false);
-    setSaved(false);
-  };
-  const save = async () => {
-    setBusy(true);
-    setError("");
-    try {
-      const next = await stash();
-      await api("/skills/" + id, {
-        method: "PUT",
-        body: JSON.stringify({
-          files: next,
-          expectedRevision: loaded.revision,
-          message: "Update from workspace",
-        }),
-      });
-      await refresh();
-      setSaved(true);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
   const toggleDisabled = async () => {
     setBusy(true);
     setError("");
@@ -875,7 +937,6 @@ function SkillPage() {
         }),
       });
       await refresh();
-      setSaved(false);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -889,33 +950,46 @@ function SkillPage() {
         {!error && <Empty>Opening skill…</Empty>}
       </main>
     );
+  const visibleFiles = files.filter((f) => !isIconAsset(f.path));
   const currentFile = files.find((f) => f.path === path);
   const binary = currentFile ? atob(currentFile.content).includes("\0") : false;
+  const text = currentFile && !binary ? decoded(currentFile.content) : "";
+  const updated = history.find((h) => h.revision === loaded.revision)?.createdAt;
+  const description = String(loaded.metadata.description ?? "")
+    .split(/\n\s*\n/)[0]
+    .replace(/\s+/g, " ")
+    .trim();
   return (
     <main
-      className={`detail-page ${loaded.metadata.disabled ? "is-disabled-detail" : ""}`}
+      className={`page skill-page ${loaded.metadata.disabled ? "is-disabled-detail" : ""}`}
     >
-      <div className="detail-heading">
-        <Link to="/" className="back-link">
-          <ArrowLeft size={15} /> Library
-        </Link>
-        <div className="detail-title">
-          {auth.role === "reader" ? (
-            <SkillIconView icon={loaded.metadata.icon} />
-          ) : (
-            <SkillIconEditor
-              key={loaded.revision}
-              id={id}
-              revision={loaded.revision}
-              icon={loaded.metadata.icon}
-              disabled={dirty || busy}
-              onSaved={refresh}
-            />
-          )}
-          <div>
-            <h1>{loaded.metadata.title}</h1>
-            <p>{loaded.metadata.tags.join(" · ") || "General workflow"}</p>
+      <Link to="/" className="back-link">
+        <ArrowLeft size={15} /> Library
+      </Link>
+      <header className="skill-hero">
+        <SkillIconView icon={loaded.metadata.icon} />
+        <div className="skill-hero-text">
+          <h1>{loaded.metadata.title}</h1>
+          {description && <p>{description}</p>}
+          <div className="skill-meta">
+            {loaded.metadata.tags.map((t: string) => (
+              <span className="tag" key={t}>
+                {t.replaceAll("-", " ")}
+              </span>
+            ))}
+            <span className={`status-badge ${loaded.metadata.disabled ? "" : "ok"}`}>
+              {loaded.metadata.disabled ? "Paused" : "Live"}
+            </span>
+            <span>
+              Revision <code>{loaded.revision.slice(0, 8)}</code>
+            </span>
+            {updated && <span>Updated {date(updated)}</span>}
+            <span>
+              {visibleFiles.length} {visibleFiles.length === 1 ? "file" : "files"}
+            </span>
           </div>
+        </div>
+        <div className="skill-hero-actions">
           {loaded.referenceId && (
             <CopyButton
               label="Copy reference"
@@ -925,48 +999,26 @@ function SkillPage() {
               )}
             />
           )}
-          <span className="revision-label">
-            {dirty ? (
-              <>
-                <span className="dirty-dot" /> Unsaved changes
-              </>
-            ) : (
-              <>
-                <Check size={13} />{" "}
-                {loaded.metadata.disabled ? "Disabled" : "Published"} ·{" "}
-                {loaded.revision.slice(0, 8)}
-              </>
-            )}
-          </span>
           {auth.role === "admin" && (
-            <Button
-              variant="ghost"
-              className="status-toggle"
-              title={loaded.metadata.disabled ? "Enable" : "Pause"}
-              aria-label={loaded.metadata.disabled ? "Enable" : "Pause"}
-              onClick={toggleDisabled}
-              disabled={dirty || busy}
-            >
+            <Button variant="outline" onClick={toggleDisabled} disabled={busy}>
               {loaded.metadata.disabled ? (
-                <PlayCircle size={25} />
+                <>
+                  <PlayCircle size={15} /> Resume
+                </>
               ) : (
-                <PauseCircle size={25} />
+                <>
+                  <PauseCircle size={15} /> Pause
+                </>
               )}
             </Button>
           )}
-          {auth.role !== "reader" && (
-            <Button onClick={save} disabled={!dirty || busy}>
-              {saved ? <Check size={15} /> : <Save size={15} />}{" "}
-              {busy ? "Saving…" : saved ? "Saved" : "Save revision"}
-            </Button>
-          )}
         </div>
-      </div>
+      </header>
       <ErrorNote error={error} />
       {loaded.metadata.disabled && (
         <div className="archive-note" role="status">
-          Disabled · unavailable to agents. Files, history and bundle membership
-          are preserved. Enable to make it available again.
+          Paused · unavailable to agents. Files, history and bundle membership
+          are preserved. Resume to make it available again.
         </div>
       )}
       {loaded.metadata.archived && (
@@ -988,82 +1040,44 @@ function SkillPage() {
         </div>
       )}
       {loaded.metadata.kind === "bundle" && (
-        <BundleComposition loaded={loaded} refresh={refresh} dirty={dirty} />
+        <BundleComposition loaded={loaded} refresh={refresh} dirty={false} />
       )}
-      {auth.role === "admin" && (
-        <SkillIntegrations
-          id={id}
-          revision={loaded.revision}
-          selected={loaded.metadata.executorIntegrations ?? []}
-          onSaved={refresh}
-          disabled={dirty || busy}
-        />
-      )}
-      <div className="editor-layout">
-        <aside className="file-sidebar">
-          <div className="file-label">
-            FILES{" "}
-            <span>{files.filter((f) => !isIconAsset(f.path)).length}</span>
-          </div>
-          {files
-            .filter((f) => !isIconAsset(f.path))
-            .map((f) => (
-              <button
-                className={path === f.path ? "active" : ""}
-                key={f.path}
-                onClick={() => choose(f.path)}
-              >
-                <FileText size={14} />
-                <span>{f.path}</span>
-              </button>
-            ))}
-          {auth.role !== "reader" && (
-            <form
-              className="add-file"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (
-                  !fileDraft.trim() ||
-                  files.some((f) => f.path === fileDraft)
-                )
-                  return;
-                const next = await stash();
-                const f = await encodedFile(fileDraft.trim(), "");
-                setFiles([...next, f]);
-                setPath(f.path);
-                setText("");
-                setBufferEdited(false);
-                setDirty(true);
-                setMode("edit");
-                setFileDraft("");
-              }}
-            >
-              <Input
-                aria-label="New file path"
-                placeholder="references/guide.md"
-                value={fileDraft}
-                onChange={(e) => setFileDraft(e.target.value)}
-              />
-              <Button variant="outline" size="sm" disabled={!fileDraft.trim()}>
-                <Plus size={13} /> Add file
-              </Button>
-            </form>
-          )}
-          <div className="file-tip">
-            <Terminal size={16} />
-            <p>Fetch package</p>
-            <code>
-              skillbox fetch
-              <br />
-              {id}@{loaded.revision}
-            </code>
-            <CopyButton
-              label="Copy command"
-              text={`skillbox fetch ${id}@${loaded.revision}`}
+      <div className="skill-layout">
+        <aside className="skill-rail">
+          <InstallGuide id={id} revision={loaded.revision} />
+          <Panel
+            flush
+            icon={<Folder size={18} />}
+            title="Files"
+            badge={<span className="tag">{visibleFiles.length}</span>}
+          >
+            <div className="skill-files">
+              {visibleFiles.map((f) => (
+                <button
+                  className={path === f.path ? "active" : ""}
+                  key={f.path}
+                  onClick={() => {
+                    setPath(f.path);
+                    if (mode === "history") setMode("read");
+                  }}
+                >
+                  <FileText size={14} />
+                  <span>{f.path}</span>
+                </button>
+              ))}
+            </div>
+          </Panel>
+          {auth.role === "admin" && (
+            <SkillIntegrations
+              id={id}
+              revision={loaded.revision}
+              selected={loaded.metadata.executorIntegrations ?? []}
+              onSaved={refresh}
+              disabled={busy}
             />
-          </div>
+          )}
         </aside>
-        <section className="editor-main">
+        <section className="settings-card skill-content">
           <div className="editor-tabs">
             <div>
               <button
@@ -1072,14 +1086,12 @@ function SkillPage() {
               >
                 <BookOpen size={15} /> Preview
               </button>
-              {auth.role !== "reader" && (
-                <button
-                  className={mode === "edit" ? "active" : ""}
-                  onClick={() => setMode("edit")}
-                >
-                  <Code2 size={15} /> Source
-                </button>
-              )}
+              <button
+                className={mode === "source" ? "active" : ""}
+                onClick={() => setMode("source")}
+              >
+                <Code2 size={15} /> Source
+              </button>
               <button
                 className={mode === "history" ? "active" : ""}
                 onClick={() => setMode("history")}
@@ -1087,33 +1099,10 @@ function SkillPage() {
                 <Clock size={15} /> History <span>{history.length}</span>
               </button>
             </div>
-            {mode === "edit" && path.endsWith(".md") && (
-              <ReferencePicker
-                currentId={id}
-                onInsert={(markdown) => {
-                  const start =
-                      sourceRef.current?.selectionStart ?? text.length,
-                    end = sourceRef.current?.selectionEnd ?? start;
-                  setText(text.slice(0, start) + markdown + text.slice(end));
-                  setBufferEdited(true);
-                  setDirty(true);
-                  setSaved(false);
-                  requestAnimationFrame(() => {
-                    sourceRef.current?.focus();
-                    sourceRef.current?.setSelectionRange(
-                      start + markdown.length,
-                      start + markdown.length,
-                    );
-                  });
-                }}
-              />
-            )}
-            <span>{path}</span>
+            {mode !== "history" && <span>{path}</span>}
           </div>
           {mode === "history" ? (
             <div className="history-list">
-              <h2>Revision history</h2>
-              <p>Restore an earlier version as a new revision.</p>
               {history.map((h) => (
                 <div className="history-row" key={h.revision}>
                   <Clock size={17} />
@@ -1124,33 +1113,8 @@ function SkillPage() {
                       <code>{h.revision.slice(0, 8)}</code>
                     </p>
                   </div>
-                  {h.revision === loaded.revision ? (
+                  {h.revision === loaded.revision && (
                     <span className="tag">Current</span>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busy || dirty}
-                      onClick={async () => {
-                        setBusy(true);
-                        try {
-                          await api("/skills/" + id + "/restore", {
-                            method: "POST",
-                            body: JSON.stringify({
-                              revision: h.revision,
-                              expectedRevision: loaded.revision,
-                            }),
-                          });
-                          await refresh();
-                        } catch (e) {
-                          setError((e as Error).message);
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
-                    >
-                      <RotateCcw size={13} /> Restore
-                    </Button>
                   )}
                 </div>
               ))}
@@ -1160,21 +1124,7 @@ function SkillPage() {
               Binary asset · {currentFile?.size.toLocaleString()} bytes. Fetch
               the package to use this file.
             </Empty>
-          ) : mode === "edit" ? (
-            <textarea
-              ref={sourceRef}
-              className="source-editor"
-              aria-label="Skill source"
-              value={text}
-              spellCheck={false}
-              onChange={(e) => {
-                setText(e.target.value);
-                setBufferEdited(true);
-                setDirty(true);
-                setSaved(false);
-              }}
-            />
-          ) : path.endsWith(".md") ? (
+          ) : mode === "read" && path.endsWith(".md") ? (
             <article className="markdown">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
@@ -1207,7 +1157,7 @@ function SkillPage() {
                             }
                             const candidate = base.join("/");
                             if (files.some((f) => f.path === candidate))
-                              choose(candidate);
+                              setPath(candidate);
                             else
                               setError(
                                 "Reference is outside this package. Load its skill or fetch it on the execution host.",
@@ -1231,13 +1181,6 @@ function SkillPage() {
           ) : (
             <pre className="code-preview">{text}</pre>
           )}
-          <div className="editor-status">
-            <span>
-              {binary ? "Binary asset" : `${text.split("\n").length} lines`} ·{" "}
-              {currentFile?.executable ? "Executable" : "Text"} · {path}
-            </span>
-            <span>Revision {loaded.revision.slice(0, 8)}</span>
-          </div>
         </section>
       </div>
     </main>
