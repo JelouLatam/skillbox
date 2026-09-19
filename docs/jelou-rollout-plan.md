@@ -133,6 +133,12 @@ Code and Codex in under 2 minutes.
 
 ## Phase 5 — Publishing and updating skills
 
+Status (2026-09-18): `skillbox-publisher` is in the repo (`skills/skillbox-publisher`) and published to
+the production library. Differences from the original plan: it is visible to everyone (members lack
+write tools, so it only tells them to ask for access), and authors can propose changes to existing
+skills only; new skills are published by an admin. Admin personal keys use `SKILLBOX_ADMIN_PROFILE`
+(`jelou-admin`, full write access). The initial load is pending the skill list.
+
 Already exists (unchanged):
 
 - **CLI:** `skillbox publish ./folder id <current-revision|new>`. The expected revision prevents
