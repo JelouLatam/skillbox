@@ -703,6 +703,25 @@ small {
 .login-card form button {
   margin-top: 16px;
 }
+.login-google {
+  height: var(--control-h);
+  margin-top: 24px;
+  background: var(--background);
+}
+.login-card .login-alt {
+  display: block;
+  margin: 16px auto 0;
+  padding: 4px 8px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.login-alt:hover {
+  color: var(--foreground);
+  text-decoration: underline;
+}
 .login-foot {
   display: flex;
   align-items: center;

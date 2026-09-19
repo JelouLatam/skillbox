@@ -132,6 +132,8 @@ export async function migrate() {
     await connection`SELECT s.id,s.revision,r.files FROM skills s JOIN revisions r ON r.id=s.revision WHERE s.package_metrics IS NULL`;
   for (const row of unmeasured)
     await connection`UPDATE skills SET package_metrics=${JSON.stringify(packageMetrics(row.files))}::jsonb WHERE id=${row.id} AND revision=${row.revision}`;
+  await connection`CREATE TABLE IF NOT EXISTS users (email text PRIMARY KEY,name text NOT NULL,role text NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),last_login_at timestamptz)`;
+  await connection`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_email text REFERENCES users(email) ON DELETE CASCADE`;
   await connection`ALTER TABLE skills ADD COLUMN IF NOT EXISTS reference_id text NOT NULL DEFAULT gen_random_uuid()::text`;
   await connection`CREATE UNIQUE INDEX IF NOT EXISTS skills_reference_id_idx ON skills(reference_id)`;
 }

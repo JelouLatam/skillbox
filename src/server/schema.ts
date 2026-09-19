@@ -100,6 +100,20 @@ export const sessions = pgTable("sessions", {
     mode: "string",
     withTimezone: true,
   }).notNull(),
+  // Null for admin-token sessions.
+  userEmail: text("user_email"),
+});
+export const users = pgTable("users", {
+  email: text("email").primaryKey(),
+  name: text("name").notNull(),
+  role: text("role").$type<"admin" | "author" | "member">().notNull(),
+  createdAt: timestamp("created_at", { mode: "string", withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  lastLoginAt: timestamp("last_login_at", {
+    mode: "string",
+    withTimezone: true,
+  }),
 });
 export const events = pgTable("events", {
   context: jsonb("context")

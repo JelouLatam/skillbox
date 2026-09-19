@@ -864,3 +864,105 @@ export function ProposalsPage() {
     </main>
   );
 }
+type User = {
+  email: string;
+  name: string;
+  role: "admin" | "author" | "member";
+  lastLoginAt: string | null;
+};
+const roleLabels: Record<User["role"], string> = {
+  admin: "Admin",
+  author: "Author",
+  member: "Member",
+};
+export function PeoplePage() {
+  const [users, setUsers] = useState<User[]>([]),
+    [query, setQuery] = useState(""),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState("");
+  const refresh = () => api("/users").then(setUsers);
+  useEffect(() => {
+    refresh().catch((e) => setError(e.message));
+  }, []);
+  const visible = users.filter((u) =>
+    (u.name + " " + u.email).toLowerCase().includes(query.toLowerCase()),
+  );
+  const setRole = async (u: User, role: User["role"]) => {
+    setBusy(u.email);
+    setError("");
+    try {
+      await api(`/users/${encodeURIComponent(u.email)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ role }),
+      });
+      await refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <main className="page">
+      <PageHeader
+        title="People"
+        description="Everyone who has signed in with Google. Members read the library; authors can also propose changes. Admins are set with SKILLBOX_ADMIN_EMAILS."
+      />
+      <ErrorNote error={error} />
+      <Panel
+        flush
+        toolbar={
+          <Input
+            aria-label="Find people"
+            placeholder="Find people…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        }
+      >
+        {visible.map((u) => (
+          <div className="client-row" key={u.email}>
+            <div className="client-avatar">
+              {u.name.trim().charAt(0).toUpperCase() || "?"}
+            </div>
+            <div className="client-identity">
+              <strong>{u.name}</strong>
+              <p>{u.email}</p>
+              <small>
+                {u.lastLoginAt
+                  ? `Last sign-in ${date(u.lastLoginAt)}`
+                  : "Never signed in"}
+              </small>
+            </div>
+            {u.role === "admin" ? (
+              <span className="status-badge">{roleLabels.admin}</span>
+            ) : (
+              <select
+                aria-label={`Role for ${u.name}`}
+                value={u.role}
+                disabled={busy === u.email}
+                onChange={(e) => setRole(u, e.target.value as User["role"])}
+              >
+                <option value="member">{roleLabels.member}</option>
+                <option value="author">{roleLabels.author}</option>
+              </select>
+            )}
+          </div>
+        ))}
+        {!visible.length && (
+          <EmptyState
+            icon={<Users size={18} />}
+            title={
+              users.length ? "No matching people" : "No one has signed in yet"
+            }
+            description={
+              users.length
+                ? "Try another name or email."
+                : "People appear here after their first Google sign-in."
+            }
+          />
+        )}
+      </Panel>
+    </main>
+  );
+}

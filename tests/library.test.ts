@@ -81,7 +81,8 @@ afterAll(async () => {
     .delete(events)
     .where(inArray(events.skillId, [...ids, ...graphIds, ...disabledIds]));
   await db.delete(events).where(eq(events.clientId, clientId));
-  await connection.end();
+  // In-memory PGlite is shared by every test file in this process; only close a real pool.
+  if (process.env.DATABASE_URL) await connection.end();
 });
 test("nested bundles deduplicate leaves, inherit grants and pin returned revisions", async () => {
   await saveBundle(

@@ -63,6 +63,11 @@ Everything lives in **one Fly app**, `jelou-ops-skills`: no separate database, n
 
 Same pattern as `internal-tooling` (restricted domain).
 
+Status (2026-09-18): implemented (`src/server/google-auth.ts`, People page, tests in
+`tests/google-auth.test.ts`). Configuration: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+`SKILLBOX_GOOGLE_DOMAIN=jelou.ai`, `SKILLBOX_ADMIN_EMAILS`. The redirect URI
+`<SKILLBOX_ORIGIN>/api/auth/google/callback` must be registered in Google Cloud Console.
+
 1. `users` table (`email`, `name`, `role: admin|author|member`, `created_at`). First login creates the user
    as `member`; emails in `SKILLBOX_ADMIN_EMAILS` become `admin`.
 2. `sessions` gets a `user_email` column; `authenticate()` returns the principal for the user's role

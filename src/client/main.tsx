@@ -1,4 +1,9 @@
-import { ClientsPage, ProfilesPage, ProposalsPage } from "./access-pages";
+import {
+  ClientsPage,
+  PeoplePage,
+  ProfilesPage,
+  ProposalsPage,
+} from "./access-pages";
 import { referenceId, skillReferenceMarkdown } from "../skill-references";
 import { SkillReference, ReferencePicker } from "./skill-reference";
 import { ExecutorSettings, SkillIntegrations } from "./executor-settings";
@@ -50,6 +55,7 @@ import {
   LoaderCircle,
   X,
   ShieldCheck,
+  UserRound,
   Download,
   Trash2,
   Layers,
@@ -75,9 +81,11 @@ import jelouSkillsMark from "./jelou-skills-mark.svg?raw";
 import { PageHeader, Panel, EmptyState } from "./page-kit";
 import "./cortex-tokens.css";
 import "./styles.css";
-const Auth = createContext<{ name: string; role: string }>({
+type Me = { name: string; role: string; email: string | null };
+const Auth = createContext<Me>({
   name: "",
   role: "reader",
+  email: null,
 });
 function BrandLogo() {
   return (
@@ -133,8 +141,25 @@ function CopyButton({
 }
 function Login({ onLogin }: { onLogin: () => void }) {
   const [key, setKey] = useState(""),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [error, setError] = useState(
+      () => new URLSearchParams(location.search).get("auth_error") ?? "",
+    ),
+    [busy, setBusy] = useState(false),
+    [google, setGoogle] = useState<boolean | null>(null),
+    [useKey, setUseKey] = useState(false);
+  useEffect(() => {
+    if (location.search.includes("auth_error"))
+      history.replaceState(null, "", location.pathname);
+    api("/auth/config")
+      .then((c) => setGoogle(c.google))
+      .catch(() => setGoogle(false));
+  }, []);
+  if (google === null)
+    return (
+      <div className="boot">
+        <LoaderCircle className="spin" />
+      </div>
+    );
   return (
     <main className="login-page">
       <div className="login-card">
@@ -142,6 +167,26 @@ function Login({ onLogin }: { onLogin: () => void }) {
           <BrandLogo />
         </div>
         <h1>Sign in to Jelou Skills</h1>
+        {google && !useKey ? (
+          <>
+            <ErrorNote error={error} />
+            <Button asChild variant="outline" className="login-google w-full">
+              <a href="/api/auth/google">
+                <GoogleMark /> Sign in with Google
+              </a>
+            </Button>
+            <button
+              type="button"
+              className="login-alt"
+              onClick={() => {
+                setError("");
+                setUseKey(true);
+              }}
+            >
+              Use an access key
+            </button>
+          </>
+        ) : (
         <form
           onSubmit={async (e) => {
             e.preventDefault();
@@ -178,13 +223,48 @@ function Login({ onLogin }: { onLogin: () => void }) {
             )}{" "}
             Open workspace
           </Button>
+          {google && (
+            <button
+              type="button"
+              className="login-alt"
+              onClick={() => {
+                setError("");
+                setUseKey(false);
+              }}
+            >
+              Sign in with Google instead
+            </button>
+          )}
         </form>
+        )}
       </div>
     </main>
   );
 }
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.5 5.5 0 0 1-2.4 3.6v3h3.9c2.2-2.1 3.5-5.1 3.5-8.7Z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.2 0 6-1.1 8-2.9l-3.9-3c-1.1.7-2.5 1.2-4.1 1.2-3.1 0-5.8-2.1-6.7-5H1.3v3.1A12 12 0 0 0 12 24Z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.3 14.3a7.2 7.2 0 0 1 0-4.6V6.6h-4a12 12 0 0 0 0 10.8l4-3.1Z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.3 6.6l4 3.1c.9-2.9 3.6-4.9 6.7-4.9Z"
+      />
+    </svg>
+  );
+}
 function Shell() {
-  const [user, setUser] = useState<{ name: string; role: string } | null>(null),
+  const [user, setUser] = useState<Me | null>(null),
     [loading, setLoading] = useState(true);
   const refresh = () =>
     api("/me")
@@ -218,35 +298,47 @@ function Shell() {
               Bundles
             </Link>
             <SidebarBundles />
-            <Link to="/profiles">
-              <ShieldCheck size={17} />
-              Profiles
-            </Link>
-            <Link to="/proposals">
-              <FileText size={17} />
-              Proposals
-            </Link>
-            <Link to="/clients">
-              <Users size={17} />
-              Clients
-            </Link>
-            <Link to="/activity">
-              <Activity size={17} />
-              Activity
-            </Link>
-            <Link to="/settings">
-              <Settings2 size={17} /> Settings
-            </Link>
+            {user.role === "admin" && (
+              <>
+                <Link to="/profiles">
+                  <ShieldCheck size={17} />
+                  Profiles
+                </Link>
+                <Link to="/proposals">
+                  <FileText size={17} />
+                  Proposals
+                </Link>
+                <Link to="/clients">
+                  <Users size={17} />
+                  Clients
+                </Link>
+                <Link to="/people">
+                  <UserRound size={17} />
+                  People
+                </Link>
+                <Link to="/activity">
+                  <Activity size={17} />
+                  Activity
+                </Link>
+                <Link to="/settings">
+                  <Settings2 size={17} /> Settings
+                </Link>
+              </>
+            )}
             <Link to="/connect">
               <Plug size={17} />
               Connect an agent
             </Link>
           </nav>
           <div className="sidebar-bottom">
-            <div className="avatar">K</div>
+            <div className="avatar">
+              {user.name.trim().charAt(0).toUpperCase() || "?"}
+            </div>
             <div>
               <strong>{user.name}</strong>
-              <small>Workspace owner</small>
+              <small title={user.email ?? undefined}>
+                {user.email ?? "Workspace owner"}
+              </small>
             </div>
             <Button
               aria-label="Sign out"
@@ -516,11 +608,13 @@ function LibraryPage() {
         <div>
           <h1>Library</h1>
         </div>
-        <Button asChild>
-          <Link to="/new">
-            <Plus size={16} /> New skill or bundle
-          </Link>
-        </Button>
+        {auth.role !== "reader" && (
+          <Button asChild>
+            <Link to="/new">
+              <Plus size={16} /> New skill or bundle
+            </Link>
+          </Button>
+        )}
       </header>
       <div className="library-toolbar">
         <div className="search-field">
@@ -594,6 +688,7 @@ function LibraryPage() {
           ))}
         </select>
       </div>
+      {auth.role === "admin" && (
       <div className="cleanup-controls">
         <select
           aria-label="Review filter"
@@ -606,6 +701,7 @@ function LibraryPage() {
         </select>
         <Link to="/activity">Inspect access logs</Link>
       </div>
+      )}
       <ErrorNote error={error} />
       <div className="collection-heading">
         <span>
@@ -1710,6 +1806,11 @@ const activityRoute = createRoute({
   path: "/activity",
   component: ActivityPage,
 });
+const peopleRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/people",
+  component: PeoplePage,
+});
 const connectRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/connect",
@@ -1725,6 +1826,7 @@ const router = createRouter({
     skillRoute,
     newRoute,
     clientsRoute,
+    peopleRoute,
     profilesRoute,
     proposalsRoute,
     activityRoute,

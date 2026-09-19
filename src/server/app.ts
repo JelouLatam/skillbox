@@ -1,16 +1,17 @@
 import * as access from "./access";
 import * as executor from "./executor";
 import * as gateway from "./gateway";
+import * as google from "./google-auth";
 import { appOrigin as origin, allowedOrigins } from "./config";
 import { parseSkillIcon } from "../skill-icons";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { serveStatic } from "hono/bun";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { eq, desc, lt, and, sql } from "drizzle-orm";
 import { db } from "./db";
-import { clients, sessions, events, profiles } from "./schema";
+import { clients, sessions, events, profiles, users } from "./schema";
 import {
   authenticate,
   isAdminToken,
@@ -81,13 +82,18 @@ app.post("/api/login", async (c) => {
     loginAttempts.push(now);
     throw new lib.Problem(401, "Invalid access key");
   }
+  await startSession(c, null);
+  return c.json({ ok: true });
+});
+async function startSession(c: Context, userEmail: string | null) {
   const secret = token();
   await db
     .delete(sessions)
     .where(lt(sessions.expiresAt, new Date().toISOString()));
   await db.insert(sessions).values({
     hash: lib.sha256(secret),
-    expiresAt: new Date(now + 86400000).toISOString(),
+    expiresAt: new Date(Date.now() + 86400000).toISOString(),
+    userEmail,
   });
   setCookie(c, "skillbox_session", secret, {
     httpOnly: true,
@@ -96,7 +102,39 @@ app.post("/api/login", async (c) => {
     path: "/",
     maxAge: 86400,
   });
-  return c.json({ ok: true });
+}
+app.get("/api/auth/config", (c) => c.json({ google: !!google.googleConfig() }));
+app.get("/api/auth/google", (c) => {
+  const { url, state, verifier } = google.startGoogleLogin();
+  // Lax, not Strict: the callback is a top-level navigation coming back from Google.
+  setCookie(c, "skillbox_oauth", `${state}.${verifier}`, {
+    httpOnly: true,
+    secure: origin().startsWith("https:"),
+    sameSite: "Lax",
+    path: "/api/auth/google",
+    maxAge: 600,
+  });
+  return c.redirect(url);
+});
+app.get("/api/auth/google/callback", async (c) => {
+  const [state, verifier] = (getCookie(c, "skillbox_oauth") ?? "").split(".");
+  deleteCookie(c, "skillbox_oauth", { path: "/api/auth/google" });
+  const fail = (reason: string) =>
+    c.redirect("/?auth_error=" + encodeURIComponent(reason));
+  const code = c.req.query("code");
+  if (!state || !verifier || !code || c.req.query("state") !== state)
+    return fail("Sign-in expired. Try again.");
+  try {
+    const identity = await google.exchangeGoogleCode(code, verifier);
+    google.assertAllowedIdentity(identity);
+    const user = await google.upsertUser(identity);
+    await startSession(c, user.email);
+    return c.redirect("/");
+  } catch (e) {
+    return fail(
+      e instanceof lib.Problem ? e.message : "Google sign-in failed",
+    );
+  }
 });
 app.post("/api/logout", async (c) => {
   const value = getCookie(c, "skillbox_session");
@@ -117,9 +155,37 @@ app.put("/api/settings/ai-gateway", async (c) => {
   assertAdmin(c.get("principal"));
   return c.json(await gateway.configureGateway(gateway.gatewayInput.parse(await c.req.json())));
 });
-app.get("/api/me", (c) =>
-  c.json({ name: c.get("principal").name, role: c.get("principal").role }),
-);
+app.get("/api/me", (c) => {
+  const p = c.get("principal");
+  return c.json({
+    name: p.name,
+    role: p.role,
+    email: p.id.startsWith("user:") ? p.id.slice(5) : null,
+  });
+});
+app.get("/api/users", async (c) => {
+  assertAdmin(c.get("principal"));
+  return c.json(
+    await db.select().from(users).orderBy(desc(users.lastLoginAt)),
+  );
+});
+app.patch("/api/users/:email", async (c) => {
+  assertAdmin(c.get("principal"));
+  const { role } = z
+    .object({ role: z.enum(["author", "member"]) })
+    .strict()
+    .parse(await c.req.json());
+  const email = c.req.param("email").toLowerCase();
+  if (google.adminEmails().has(email))
+    throw new lib.Problem(409, "Admins are set with SKILLBOX_ADMIN_EMAILS");
+  const [user] = await db
+    .update(users)
+    .set({ role })
+    .where(eq(users.email, email))
+    .returning();
+  if (!user) throw new lib.Problem(404, "User not found");
+  return c.json(user);
+});
 app.put("/api/bundles/:id", async (c) => {
   const b = z
     .object({

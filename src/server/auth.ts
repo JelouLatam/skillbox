@@ -1,7 +1,7 @@
 import { timingSafeEqual, randomBytes, randomUUID } from "node:crypto";
 import { and, eq, gt } from "drizzle-orm";
 import { db } from "./db";
-import { clients, sessions, profiles } from "./schema";
+import { clients, sessions, profiles, users } from "./schema";
 import { ADMIN, Problem, sha256 } from "./library";
 import type { Principal } from "../shared";
 export const token = () => randomBytes(32).toString("base64url");
@@ -61,8 +61,15 @@ export async function authenticate(
             gt(sessions.expiresAt, new Date().toISOString()),
           ),
         );
-      if (s)
-        return { ...ADMIN, context: { source: "web", harness: "Skillbox UI" } };
+      if (s) {
+        const context = { source: "web", harness: "Skillbox UI" };
+        if (!s.userEmail) return { ...ADMIN, context };
+        const [user] = await db
+          .select()
+          .from(users)
+          .where(eq(users.email, s.userEmail));
+        if (user) return userPrincipal(user, context);
+      }
     }
   }
   throw new Problem(401, "Authentication required");
@@ -105,6 +112,27 @@ export async function createClient(
       tokenHash: sha256(secret),
     });
   return { id, token: secret };
+}
+export function userPrincipal(
+  user: typeof users.$inferSelect,
+  context?: Principal["context"],
+): Principal {
+  if (user.role === "admin")
+    return { ...ADMIN, id: "user:" + user.email, name: user.name, context };
+  return {
+    id: "user:" + user.email,
+    name: user.name,
+    role: "reader",
+    allSkills: true,
+    skillIds: [],
+    permissions: {
+      create: false,
+      update: false,
+      delete: false,
+      propose: user.role === "author",
+    },
+    context,
+  };
 }
 export function assertAdmin(p: Principal) {
   if (p.role !== "admin")
