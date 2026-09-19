@@ -80,6 +80,8 @@ async function request(path, options = {}) {
 }
 async function main() {
   const [command, arg] = process.argv.slice(2);
+  if (["setup", "update", "doctor", "uninstall"].includes(command))
+    return (await import("./setup.mjs")).run(command, process.argv.slice(3));
   if (command === "mcp") {
     const lines = createInterface({
       input: process.stdin,
@@ -297,7 +299,7 @@ async function main() {
     return;
   }
   console.log(
-    "skillbox list | search <query> | recommend <task> | audit | manifest <id> | load <id> | resolve <bundle-id> | fetch <id>@<revision> | publish <directory> <id> <expectedRevision|new> | mcp | configure",
+    "skillbox list | search <query> | recommend <task> | audit | manifest <id> | load <id> | resolve <bundle-id> | fetch <id>@<revision> | publish <directory> <id> <expectedRevision|new> | mcp | configure | setup <code> --origin <url> | update | doctor | uninstall",
   );
 }
 main().catch((e) => {

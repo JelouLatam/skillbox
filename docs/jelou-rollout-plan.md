@@ -100,6 +100,11 @@ shows the key and a `claude mcp add` command.
 
 ## Phase 4 — One-command installer
 
+Status (2026-09-18): implemented (`cli/install.sh` served at `/install`, `cli/setup.mjs` for
+`skillbox setup|update|doctor|uninstall`). Tested in an isolated `HOME` with existing Claude Code,
+Codex and Cursor configs: unrelated servers, comments and skills are preserved, reinstalling does
+not duplicate entries, and `uninstall` restores the configs to their previous content.
+
 ```sh
 curl -fsSL https://skills.jelou.dev/install | sh -s -- <code>
 ```

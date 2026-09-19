@@ -1665,7 +1665,9 @@ function MyKeys() {
   const [keys, setKeys] = useState<MyKey[]>([]),
     [limit, setLimit] = useState(5),
     [device, setDevice] = useState(""),
-    [created, setCreated] = useState<{ key: string } | null>(null),
+    [created, setCreated] = useState<{ key: string; code: string } | null>(
+      null,
+    ),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const refresh = () =>
@@ -1676,6 +1678,9 @@ function MyKeys() {
   useEffect(() => {
     refresh().catch((e) => setError(e.message));
   }, []);
+  const installCommand = created
+    ? `curl -fsSL ${url}/install | sh -s -- ${created.code}`
+    : "";
   const claudeCommand = created
     ? `claude mcp add --scope user --transport http skillbox ${url}/mcp --header "Authorization: Bearer ${created.key}"`
     : "";
@@ -1685,8 +1690,8 @@ function MyKeys() {
       {created && (
         <Panel
           icon={<KeyRound size={18} />}
-          title="Your new key"
-          description="Shown only once. Run the command in a terminal to add the library to Claude Code, or use the key in any MCP client."
+          title="Install on this device"
+          description="Run this in a terminal within 10 minutes. It connects Claude Code, Codex and Cursor, installs the library skill and the skillbox command."
           footer={
             <Button variant="outline" onClick={() => setCreated(null)}>
               Done
@@ -1694,13 +1699,23 @@ function MyKeys() {
           }
         >
           <div className="code-block command-block">
-            <CopyButton text={claudeCommand} />
-            <pre>{claudeCommand}</pre>
+            <CopyButton text={installCommand} />
+            <pre>{installCommand}</pre>
           </div>
-          <div className="copy-line">
-            <code>{created.key}</code>
-            <CopyButton text={created.key} label="Copy key" />
-          </div>
+          <details className="settings-disclosure">
+            <summary>Set it up by hand instead</summary>
+            <p className="field-help">
+              The key is shown only once. For Claude Code over HTTP:
+            </p>
+            <div className="code-block command-block">
+              <CopyButton text={claudeCommand} />
+              <pre>{claudeCommand}</pre>
+            </div>
+            <div className="copy-line">
+              <code>{created.key}</code>
+              <CopyButton text={created.key} label="Copy key" />
+            </div>
+          </details>
         </Panel>
       )}
       <form
@@ -1868,17 +1883,9 @@ function ConnectPage() {
           </p>
         </details>
       </Panel>
-      </>
-      )}
       <Panel
-        icon={
-          auth.role === "admin" ? (
-            <span className="step-number">3</span>
-          ) : (
-            <BookOpen size={18} />
-          )
-        }
-        title={auth.role === "admin" ? "Install the bootstrap skill" : "Install the library skill"}
+        icon={<span className="step-number">3</span>}
+        title="Install the bootstrap skill"
         description="It teaches your agent to browse the library at task start, load the right workflow, and fetch scripts on the right machine."
         footer={
           <Button variant="outline" asChild>
@@ -1893,6 +1900,8 @@ function ConnectPage() {
           skills-library/SKILL.md.
         </p>
       </Panel>
+      </>
+      )}
       <div className="connect-note">
         <ShieldCheck size={18} />
         <p>

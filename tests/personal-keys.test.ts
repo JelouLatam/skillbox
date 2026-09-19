@@ -130,3 +130,13 @@ test("keys are limited per person and only the owner can revoke them", async () 
 test("admin-token sessions have no personal keys", async () => {
   await expect(createMyKey(ADMIN, "Nope")).rejects.toThrow("Google sign-in");
 });
+
+test("the install script targets this server and the CLI files it downloads exist", async () => {
+  const script = await (await app.request("/install")).text();
+  expect(script).toContain(
+    `origin='${process.env.SKILLBOX_ORIGIN ?? "http://127.0.0.1:4791"}'`,
+  );
+  expect(script).not.toContain("__SKILLBOX_ORIGIN__");
+  for (const file of ["skillbox.mjs", "package.mjs", "setup.mjs"])
+    expect((await app.request("/cli/" + file)).status).toBe(200);
+});

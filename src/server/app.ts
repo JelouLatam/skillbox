@@ -674,6 +674,19 @@ app.get("/cli/package.mjs", async (c) => {
   c.header("Content-Type", "text/javascript");
   return c.body(await Bun.file("cli/package.mjs").text());
 });
+app.get("/cli/setup.mjs", async (c) => {
+  c.header("Content-Type", "text/javascript");
+  return c.body(await Bun.file("cli/setup.mjs").text());
+});
+app.get("/install", async (c) => {
+  c.header("Content-Type", "text/x-shellscript; charset=utf-8");
+  return c.body(
+    (await Bun.file("cli/install.sh").text()).replace(
+      "__SKILLBOX_ORIGIN__",
+      origin(),
+    ),
+  );
+});
 app.use("/assets/*", serveStatic({ root: "./dist" }));
 app.get("/favicon.svg", async (c) => {
   const f = Bun.file("./dist/favicon.svg");
