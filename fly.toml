@@ -8,6 +8,8 @@ kill_timeout = "30s"
 
 [env]
   SKILLBOX_ORIGIN = "https://jelou-ops-skills.fly.dev"
+  SKILLBOX_GOOGLE_DOMAIN = "jelou.ai"
+  SKILLBOX_ADMIN_EMAILS = "alexander@jelou.ai"
 
 [http_service]
   internal_port = 4791
