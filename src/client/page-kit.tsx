@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import Avatar from "boring-avatars";
 
 export function PageHeader({
   title,
@@ -86,12 +85,50 @@ export function EmptyState({
   );
 }
 
-const AVATAR_COLORS = ["#00B3C7", "#5ED5E3", "#1F3A5F", "#FFB547", "#F07167"];
+const AVATAR_GRADIENTS = [
+  ["#00B3C7", "#5ED5E3"],
+  ["#1F3A5F", "#00B3C7"],
+  ["#FFB547", "#F07167"],
+  ["#7C5CFF", "#00B3C7"],
+  ["#18BA81", "#5ED5E3"],
+  ["#F07167", "#7C5CFF"],
+];
 
-export function UserAvatar({ name, size = 32 }: { name: string; size?: number }) {
+function initials(name: string) {
+  const words = name
+    .split("@")[0]
+    .split(/[\s._-]+/)
+    .filter(Boolean);
   return (
-    <span className="user-avatar" style={{ width: size, height: size }}>
-      <Avatar variant="marble" name={name} colors={AVATAR_COLORS} size={size} title={false} />
+    words.length > 1 ? words[0][0] + words[1][0] : (words[0] ?? "?").slice(0, 2)
+  ).toUpperCase();
+}
+
+export function UserAvatar({
+  name,
+  seed = name,
+  size = 32,
+}: {
+  name: string;
+  seed?: string;
+  size?: number;
+}) {
+  let hash = 0;
+  for (const char of seed.toLowerCase())
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  const [from, to] = AVATAR_GRADIENTS[hash % AVATAR_GRADIENTS.length];
+  return (
+    <span
+      className="user-avatar"
+      aria-hidden="true"
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * 0.38),
+        backgroundImage: `linear-gradient(135deg, ${from}, ${to})`,
+      }}
+    >
+      {initials(name)}
     </span>
   );
 }

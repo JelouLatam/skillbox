@@ -388,7 +388,7 @@ function ProfileMenu({
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        <UserAvatar name={user.email ?? user.name} size={34} />
+        <UserAvatar name={user.name} seed={user.email ?? user.name} size={34} />
         <span className="profile-text">
           <strong>{user.name}</strong>
           <small title={user.email ?? undefined}>
@@ -891,9 +891,9 @@ function InstallGuide({
           <Button variant="outline" onClick={() => setPending(null)}>
             Done
           </Button>
-          <button type="button" className="text-link" onClick={discard}>
+          <Button variant="ghost" onClick={discard}>
             Cancel
-          </button>
+          </Button>
         </div>
       </>
     );

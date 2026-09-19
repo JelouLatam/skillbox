@@ -897,6 +897,19 @@ export function ProposalsPage() {
         }
       />
       <ErrorNote error={error} />
+      {!visible.length ? (
+        <Panel>
+          <EmptyState
+            icon={<FileText size={18} />}
+            title={tab === "pending" ? "Nothing to review" : "No reviewed proposals yet"}
+            description={
+              tab === "pending"
+                ? "When an author's agent proposes a change to a skill, it shows up here with the exact lines that change."
+                : "Approved and rejected proposals are kept here."
+            }
+          />
+        </Panel>
+      ) : (
       <div className="proposal-layout">
         <Panel flush className="proposal-list">
           {visible.map((p) => {
@@ -922,17 +935,6 @@ export function ProposalsPage() {
               </button>
             );
           })}
-          {!visible.length && (
-            <EmptyState
-              icon={<FileText size={18} />}
-              title={tab === "pending" ? "Nothing to review" : "No reviewed proposals yet"}
-              description={
-                tab === "pending"
-                  ? "When an author's agent proposes a change, it shows up here."
-                  : undefined
-              }
-            />
-          )}
         </Panel>
         {selected ? (
           <Panel flush className="proposal-detail">
@@ -989,6 +991,7 @@ export function ProposalsPage() {
           </Panel>
         )}
       </div>
+      )}
     </main>
   );
 }
@@ -1050,7 +1053,7 @@ export function PeoplePage() {
       >
         {visible.map((u) => (
           <div className="client-row" key={u.email}>
-            <UserAvatar name={u.email} size={36} />
+            <UserAvatar name={u.name} seed={u.email} size={36} />
             <div className="client-identity">
               <strong>{u.name}</strong>
               <p>{u.email}</p>
