@@ -1,0 +1,36 @@
+app = "jelou-skillbox"
+primary_region = "iad"
+kill_signal = "SIGINT"
+kill_timeout = "30s"
+
+[build]
+  build-target = "fly"
+
+[env]
+  SKILLBOX_ORIGIN = "https://jelou-skillbox.fly.dev"
+
+[http_service]
+  internal_port = 4791
+  force_https = true
+  # Idle machines stop so the app costs only its volume. "suspend" does not support volumes.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "5s"
+
+# PGlite is an in-process database: never scale beyond one machine.
+[[mounts]]
+  source = "skillbox_data"
+  destination = "/data"
+  initial_size = "1gb"
+  snapshot_retention = 14
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

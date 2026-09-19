@@ -78,6 +78,11 @@ Todo vive en **una sola app de Fly**: sin base de datos aparte ni proveedores ex
 4. Dominio: `fly certs add skills.jelou.dev` + registro DNS (patrón de `tooling.jelou.dev`).
 5. Deploy por GitHub Actions al hacer push a `main` (igual que `internal-tooling`).
 
+Estado (2026-09-18): código listo. `db.ts` usa PGlite si no hay `DATABASE_URL`; las consultas globales
+hechas dentro de una transacción se unen a ella (PGlite tiene un solo backend y si no se bloquearían).
+`bun test` pasa completo sobre PGlite en memoria. El `Dockerfile` tiene el target `fly`, que ajusta los
+permisos del volumen y corre el servidor como `bun`. Falta crear la app en Fly y el dominio.
+
 **Listo cuando:** `/healthz` responde 200 por HTTPS, entras con el admin token, creas un perfil y una key
 de prueba, y `claude mcp add ...` con esa key lista skills.
 
