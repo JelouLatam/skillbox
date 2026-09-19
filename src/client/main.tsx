@@ -8,7 +8,6 @@ import { referenceId, skillReferenceMarkdown } from "../skill-references";
 import { SkillReference } from "./skill-reference";
 import { ExecutorSettings, SkillIntegrations } from "./executor-settings";
 import { isIconAsset } from "../package-metrics";
-import { SkillMetrics, LENGTH_BANDS, lengthBand } from "./skill-metrics";
 import { SkillIconView } from "./skill-icon";
 import React, {
   useEffect,
@@ -25,13 +24,11 @@ import {
   RouterProvider,
   Outlet,
   Link,
-  useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
 import {
   Library,
   Search,
-  Plus,
   ArrowUpRight,
   ArrowLeft,
   FileText,
@@ -65,7 +62,7 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { api, date, encodedFile, decoded } from "./api";
+import { api, date, decoded } from "./api";
 import type { SkillSummary, SkillFile } from "../shared";
 import "@fontsource/manrope/400.css";
 import "@fontsource/manrope/500.css";
@@ -420,11 +417,6 @@ function BundlesPage() {
         <div>
           <h1>Bundles</h1>
         </div>
-        <Button asChild>
-          <Link to="/bundles/new">
-            <Plus size={16} /> New bundle
-          </Link>
-        </Button>
       </header>
       <div className="library-toolbar">
         <div className="search-field">
@@ -488,51 +480,17 @@ function BundlesPage() {
 }
 function LibraryPage() {
   const auth = useContext(Auth);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [cleanup, setCleanup] = useState("all");
-  const toggleStatus = async (s: SkillSummary) => {
-    setBusyId(s.id);
-    setError("");
-    try {
-      await api(`/skills/${s.id}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          disabled: !s.disabled,
-          expectedRevision: s.revision,
-        }),
-      });
-      const r = await api(
-        "/skills?metrics=true&includeArchived=true&includeDisabled=true",
-      );
-      setSkills(r.items);
-      setMatches((previous) =>
-        previous
-          ? previous.map(
-              (item) =>
-                r.items.find((fresh: SkillSummary) => fresh.id === item.id) ??
-                item,
-            )
-          : null,
-      );
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusyId(null);
-    }
-  };
-  const [groupBy, setGroupBy] = useState(() =>
-    localStorage.getItem("skillbox-group-by") === "none" ? "none" : "length",
-  );
   const [skills, setSkills] = useState<SkillSummary[]>([]),
     [matches, setMatches] = useState<SkillSummary[] | null>(null),
     [query, setQuery] = useState(""),
-    [tag, setTag] = useState("All skills"),
-    [kind, setKind] = useState("all"),
+    [tag, setTag] = useState(""),
+    [view, setView] = useState("available"),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true);
   const input = useRef<HTMLInputElement>(null);
+  const params = "metrics=true&includeArchived=true&includeDisabled=true";
   useEffect(() => {
-    api("/skills?metrics=true&includeArchived=true&includeDisabled=true")
+    api("/skills?limit=500&" + params)
       .then((r) => setSkills(r.items))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -552,10 +510,7 @@ function LibraryPage() {
     }
     let cancelled = false;
     const timeout = setTimeout(() => {
-      api(
-        "/skills?metrics=true&includeArchived=true&includeDisabled=true&limit=500&query=" +
-          encodeURIComponent(query),
-      )
+      api(`/skills?limit=500&${params}&query=` + encodeURIComponent(query))
         .then((r) => {
           if (!cancelled) setMatches(r.items);
         })
@@ -568,53 +523,24 @@ function LibraryPage() {
       clearTimeout(timeout);
     };
   }, [query]);
-  const tags = [...new Set(skills.flatMap((s) => s.tags))].sort();
+  const available = skills.filter((s) => !s.archived && !s.disabled);
+  const tags = [...new Set(available.flatMap((s) => s.tags))].sort();
   const results = (matches ?? skills).filter(
     (s) =>
-      (kind === "archived"
+      (view === "archived"
         ? s.archived
-        : kind === "disabled"
+        : view === "paused"
           ? s.disabled && !s.archived
-          : !s.archived &&
-            (kind === "all" || !s.disabled) &&
-            (kind === "all" || kind === "active" || s.kind === kind)) &&
-      (tag === "All skills" || s.tags.includes(tag)) &&
-      (cleanup === "all" ||
-        (cleanup === "heavy" && lengthBand(s) >= 3) ||
-        (cleanup === "unreported" && !s.usageCount)),
+          : !s.archived && !s.disabled) &&
+      (!tag || s.tags.includes(tag)),
   );
-  const groups =
-    groupBy === "length"
-      ? [
-          ...LENGTH_BANDS.map((b, i) => ({
-            label: b.label,
-            range: b.range,
-            items: results.filter(
-              (s) => s.characters !== undefined && lengthBand(s) === i,
-            ),
-          })),
-          {
-            label: "Length unavailable",
-            range: "",
-            items: results.filter((s) => s.characters === undefined),
-          },
-        ].filter((g) => g.items.length)
-      : [{ label: "", range: "", items: results }];
   return (
-    <main className="page">
-      <header className="page-heading">
-        <div>
-          <h1>Library</h1>
-        </div>
-        {auth.role !== "reader" && (
-          <Button asChild>
-            <Link to="/new">
-              <Plus size={16} /> New skill or bundle
-            </Link>
-          </Button>
-        )}
-      </header>
-      <div className="library-toolbar">
+    <main className="page library-page">
+      <PageHeader
+        title="Library"
+        description={`${available.length} ${available.length === 1 ? "skill" : "skills"} your agent can use. Connect once and they load when a task needs them.`}
+      />
+      <div className="library-search">
         <div className="search-field">
           <Search size={19} />
           <input
@@ -624,161 +550,114 @@ function LibraryPage() {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search skills…"
           />
-          <kbd><span>⌘</span>K</kbd>
+          <kbd>
+            <span>⌘</span>K
+          </kbd>
         </div>
-        <span className="total-count">
-          <b>{skills.filter((s) => !s.archived && !s.disabled).length}</b>{" "}
-          active entries
-        </span>
-      </div>
-      <div className="filters">
-        <select
-          aria-label="Group by"
-          value={groupBy}
-          onChange={(e) => {
-            setGroupBy(e.target.value);
-            localStorage.setItem("skillbox-group-by", e.target.value);
-          }}
-        >
-          <option value="length">Group by length</option>
-          <option value="none">None</option>
-        </select>
-        <select
-          aria-label="Library view"
-          value={kind}
-          onChange={(e) => setKind(e.target.value)}
-        >
-          <option value="all">All entries</option>
-          <option value="active">Active library</option>
-          <option value="skill">Skills</option>
-          <option value="bundle">Bundles</option>
-          <option value="disabled">Disabled</option>
-          <option value="archived">Archived</option>
-        </select>
-        <button
-          className={tag === "All skills" ? "selected" : ""}
-          onClick={() => setTag("All skills")}
-        >
-          All skills{" "}
-          <span>{skills.filter((s) => !s.archived && !s.disabled).length}</span>
-        </button>
-        {tags.slice(0, 5).map((t) => (
-          <button
-            key={t}
-            className={tag === t ? "selected" : ""}
-            onClick={() => setTag(t)}
+        {auth.role === "admin" && (
+          <select
+            aria-label="Show"
+            value={view}
+            onChange={(e) => setView(e.target.value)}
           >
-            {t.replaceAll("-", " ")}
+            <option value="available">Available</option>
+            <option value="paused">Paused</option>
+            <option value="archived">Archived</option>
+          </select>
+        )}
+      </div>
+      {tags.length > 0 && (
+        <div className="library-tags">
+          <button
+            className={!tag ? "selected" : ""}
+            onClick={() => setTag("")}
+          >
+            All
           </button>
-        ))}
-        <select
-          aria-label="More categories"
-          value={
-            tags.slice(0, 5).includes(tag) || tag === "All skills" ? "" : tag
-          }
-          onChange={(e) => setTag(e.target.value || "All skills")}
-        >
-          <option value="">More categories</option>
-          {tags.slice(5).map((t) => (
-            <option key={t} value={t}>
+          {tags.map((t) => (
+            <button
+              key={t}
+              className={tag === t ? "selected" : ""}
+              onClick={() => setTag(tag === t ? "" : t)}
+            >
               {t.replaceAll("-", " ")}
-            </option>
+            </button>
           ))}
-        </select>
-      </div>
-      {auth.role === "admin" && (
-      <div className="cleanup-controls">
-        <select
-          aria-label="Review filter"
-          value={cleanup}
-          onChange={(e) => setCleanup(e.target.value)}
-        >
-          <option value="all">All sizes and activity</option>
-          <option value="heavy">Heavy packages</option>
-          <option value="unreported">No usage reports</option>
-        </select>
-        <Link to="/activity">Inspect access logs</Link>
-      </div>
+        </div>
       )}
       <ErrorNote error={error} />
-      <div className="collection-heading">
-        <span>
-          {query
-            ? `RESULTS FOR “${query}”`
-            : tag === "All skills"
-              ? "ALL SKILLS"
-              : tag.toUpperCase()}
-        </span>
-        <span>{results.length} workflows</span>
-      </div>
+      {query && !loading && (
+        <p className="library-results">
+          {results.length} {results.length === 1 ? "result" : "results"} for “
+          {query}”
+        </p>
+      )}
       {loading ? (
         <Empty>Loading your library…</Empty>
       ) : results.length ? (
-        <div>
-          {groups.map((group) => (
-            <section key={group.label} className="length-group">
-              {group.label && (
-                <h2 className="length-group-heading">
-                  <span>
-                    {group.label} <small>{group.items.length}</small>
+        <Panel flush className="library-list">
+          {results.map((s) => (
+            <Link
+              key={s.id}
+              to="/skills/$id"
+              params={{ id: s.id }}
+              className="library-row"
+            >
+              <SkillIconView icon={s.icon} />
+              <div className="library-row-text">
+                <strong>{s.title}</strong>
+                <p>{s.description}</p>
+                <SkillActivity skill={s} />
+              </div>
+              <div className="library-row-tags">
+                {s.kind === "bundle" && <span className="tag">bundle</span>}
+                {s.tags.slice(0, 2).map((t) => (
+                  <span className="tag" key={t}>
+                    {t.replaceAll("-", " ")}
                   </span>
-                  <small>{group.range}</small>
-                </h2>
-              )}
-              <div className="skill-table">
-                {group.items.map((s) => (
-                  <div
-                    key={s.id}
-                    className={`skill-row ${s.disabled ? "is-disabled" : ""}`}
-                  >
-                    <Link
-                      to="/skills/$id"
-                      params={{ id: s.id }}
-                      className="skill-row-link"
-                    >
-                      <SkillIconView icon={s.icon} />
-                      <div className="skill-description">
-                        <strong>{s.title === s.id ? s.id : s.title}</strong>
-                        <p>{s.description}</p>
-                      </div>
-                      <span className="tag">
-                        {s.archived
-                          ? "archived"
-                          : s.disabled
-                            ? "disabled"
-                            : s.kind === "bundle"
-                              ? "bundle"
-                              : (s.tags[0]?.replaceAll("-", " ") ?? "general")}
-                      </span>
-                      <SkillMetrics skill={s} />
-                    </Link>
-                    {auth.role === "admin" && (
-                      <button
-                        className="status-toggle"
-                        aria-label={`${s.disabled ? "Enable" : "Pause"} ${s.title}`}
-                        title={s.disabled ? "Enable" : "Pause"}
-                        disabled={busyId === s.id}
-                        onClick={() => toggleStatus(s)}
-                      >
-                        {busyId === s.id ? (
-                          <LoaderCircle className="spin" size={23} />
-                        ) : s.disabled ? (
-                          <PlayCircle size={25} />
-                        ) : (
-                          <PauseCircle size={25} />
-                        )}
-                      </button>
-                    )}
-                  </div>
                 ))}
               </div>
-            </section>
+              <ChevronRight size={18} className="library-row-chevron" />
+            </Link>
           ))}
-        </div>
+        </Panel>
       ) : (
-        <Empty>No skills match your search.</Empty>
+        <EmptyState
+          icon={<Library size={18} />}
+          title={
+            query || tag
+              ? "No skills match"
+              : view === "available"
+                ? "The library is empty"
+                : `No ${view} skills`
+          }
+          description={
+            query || tag
+              ? "Try another word or clear the category."
+              : view === "available"
+                ? "Skills are published with the skillbox CLI or the skillbox-publisher skill."
+                : undefined
+          }
+        />
       )}
     </main>
+  );
+}
+function SkillActivity({ skill }: { skill: SkillSummary }) {
+  const parts = [
+    skill.readCount
+      ? `${skill.readCount} agent ${skill.readCount === 1 ? "read" : "reads"}`
+      : "",
+    skill.usageCount
+      ? `used ${skill.usageCount} ${skill.usageCount === 1 ? "time" : "times"}`
+      : "",
+    skill.lastAgentReadAt ? `last read ${date(skill.lastAgentReadAt)}` : "",
+  ].filter(Boolean);
+  if (!parts.length) return null;
+  return (
+    <small className="library-row-activity">
+      <Activity size={13} /> {parts.join(" · ")}
+    </small>
   );
 }
 function InstallGuide({ id, revision }: { id: string; revision: string }) {
@@ -1345,123 +1224,6 @@ function BundleComposition({
     </section>
   );
 }
-function NewPage({
-  initialKind = "skill",
-}: {
-  initialKind?: "skill" | "bundle";
-}) {
-  const [id, setId] = useState(""),
-    [description, setDescription] = useState(""),
-    [kind, setKind] = useState(initialKind),
-    [members, setMembers] = useState<string[]>([]),
-    [catalog, setCatalog] = useState<SkillSummary[]>([]),
-    [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
-  const nav = useNavigate();
-  useEffect(() => {
-    api("/skills")
-      .then((r) => setCatalog(r.items))
-      .catch((e) => setError(e.message));
-  }, []);
-  return (
-    <main className="page narrow">
-      <Link
-        to={initialKind === "bundle" ? "/bundles" : "/"}
-        className="back-link"
-      >
-        <ArrowLeft size={14} />{" "}
-        {initialKind === "bundle" ? "Bundles" : "Library"}
-      </Link>
-      <h1>New {kind}</h1>
-      <p>
-        {kind === "bundle"
-          ? "Choose the skills and bundles that belong in this workflow."
-          : "Describe when an agent should use this skill. Add its instructions and files next."}
-      </p>
-      <form
-        className="form-stack"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          try {
-            if (kind === "bundle") {
-              await api("/bundles/" + id, {
-                method: "PUT",
-                body: JSON.stringify({
-                  title: id,
-                  description,
-                  members,
-                  expectedRevision: null,
-                }),
-              });
-              await nav({ to: "/skills/$id", params: { id } });
-              return;
-            }
-            const f = await encodedFile(
-              "SKILL.md",
-              `---\nname: ${id}\ndescription: ${JSON.stringify(description)}\n---\n\n# ${id}\n\nWrite your workflow here.\n`,
-            );
-            await api("/skills/" + id, {
-              method: "PUT",
-              body: JSON.stringify({
-                files: [f],
-                expectedRevision: null,
-                message: "Create skill",
-              }),
-            });
-            await nav({ to: "/skills/$id", params: { id } });
-          } catch (e) {
-            setError((e as Error).message);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <label>
-          Type
-          <select
-            aria-label="Entry type"
-            value={kind}
-            onChange={(e) => setKind(e.target.value as "skill" | "bundle")}
-          >
-            <option value="skill">Skill</option>
-            <option value="bundle">Bundle</option>
-          </select>
-        </label>
-        <label>
-          {kind === "bundle" ? "Bundle" : "Skill"} ID
-          <Input
-            value={id}
-            onChange={(e) => setId(e.target.value)}
-            pattern="[a-z0-9][a-z0-9-]{0,79}"
-            placeholder="deploy-my-app"
-            required
-          />
-        </label>
-        <label>
-          When should an agent use it?
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            required
-            placeholder="Deploy my web apps, check release health, and roll back a failed deployment."
-          />
-        </label>
-        {kind === "bundle" && (
-          <MemberPicker
-            catalog={catalog}
-            selected={members}
-            onChange={setMembers}
-          />
-        )}
-        <ErrorNote error={error} />
-        <Button disabled={busy}>
-          <Plus size={16} /> Create {kind}
-        </Button>
-      </form>
-    </main>
-  );
-}
 function ActivityPage() {
   const [operation, setOperation] = useState("reads"),
     [skillId, setSkillId] = useState(""),
@@ -1871,20 +1633,10 @@ const bundlesRoute = createRoute({
   path: "/bundles",
   component: BundlesPage,
 });
-const newBundleRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/bundles/new",
-  component: () => <NewPage initialKind="bundle" />,
-});
 const skillRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/skills/$id",
   component: SkillPage,
-});
-const newRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/new",
-  component: NewPage,
 });
 const profilesRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -1922,9 +1674,7 @@ const router = createRouter({
   routeTree: rootRoute.addChildren([
     indexRoute,
     bundlesRoute,
-    newBundleRoute,
     skillRoute,
-    newRoute,
     clientsRoute,
     peopleRoute,
     profilesRoute,
