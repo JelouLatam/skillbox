@@ -12,6 +12,7 @@ kill_timeout = "30s"
   SKILLBOX_ADMIN_EMAILS = "alexander@jelou.ai"
   SKILLBOX_MEMBER_PROFILE = "jelou-read"
   SKILLBOX_AUTHOR_PROFILE = "jelou-author"
+  SKILLBOX_ADMIN_PROFILE = "jelou-admin"
 
 [http_service]
   internal_port = 4791

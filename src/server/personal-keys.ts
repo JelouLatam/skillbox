@@ -19,6 +19,7 @@ function ownerOf(p: Principal) {
 async function profileFor(email: string) {
   const [user] = await db.select().from(users).where(eq(users.email, email));
   const names = [
+    ...(user?.role === "admin" ? [process.env.SKILLBOX_ADMIN_PROFILE] : []),
     ...(user?.role === "author" || user?.role === "admin"
       ? [process.env.SKILLBOX_AUTHOR_PROFILE]
       : []),
