@@ -1,193 +1,166 @@
-# Skillbox para Jelou — plan de despliegue
+# Skillbox for Jelou — rollout plan
 
-Objetivo: una biblioteca de skills interna en Fly.io (org `jelou-ops`), con login de Google `@jelou.ai`,
-en la que cualquier persona de Jelou conecta su agente con **un solo comando** y en la que publicar o
-actualizar una skill llega a todos al instante.
+Goal: an internal skills library on Fly.io (org `jelou-ops`), behind Google login restricted to `@jelou.ai`,
+where anyone at Jelou connects their agent with **one command**, and publishing or updating a skill reaches
+everyone immediately.
 
-## Cómo queda
+## Shape
 
 ```
-Persona de Jelou ──Google @jelou.ai──▶ Panel web ──▶ "Conectar mi agente" ──▶ código de un solo uso
-                                                                                   │
-Terminal:  curl -fsSL https://skills.jelou.dev/install | sh -s -- <código>  ◀──────┘
+Jelou member ──Google @jelou.ai──▶ Web panel ──▶ "Connect my agent" ──▶ one-time code
+                                                                            │
+Terminal:  curl -fsSL https://skills.jelou.dev/install | sh -s -- <code>  ◀─┘
                    │
-                   ├─ Claude Code (CLI + pestaña Code de Desktop)
-                   ├─ Codex (CLI + app de escritorio + extensión IDE)
+                   ├─ Claude Code (CLI + Claude Desktop's Code tab)
+                   ├─ Codex (CLI + desktop app + IDE extension)
                    └─ Cursor
                         │
                         ▼
-                /mcp con key personal ──▶ skills en vivo (sin copias locales)
+                /mcp with a personal key ──▶ live skills (no local copies)
 ```
 
-| Rol | Quién | Qué puede hacer |
+| Role | Who | Can |
 |---|---|---|
-| **Admin** | Alexander (lista en `SKILLBOX_ADMIN_EMAILS`) | Todo: crear, editar, archivar skills, aprobar propuestas, revocar keys |
-| **Autor** | Quien el admin marque | Proponer skills nuevas o cambios; el admin aprueba |
-| **Miembro** | Cualquier `@jelou.ai` | Leer skills, generar y revocar **sus** keys |
+| **Admin** | Alexander (listed in `SKILLBOX_ADMIN_EMAILS`) | Everything: create, edit, archive skills, approve proposals, revoke keys |
+| **Author** | Whoever the admin marks | Propose new skills or changes; the admin approves |
+| **Member** | Any `@jelou.ai` | Read skills, create and revoke **their own** keys |
 
-`SKILLBOX_ADMIN_TOKEN` se queda como acceso de emergencia si Google falla.
+`SKILLBOX_ADMIN_TOKEN` stays as break-glass access if Google login fails.
 
 ---
 
-## Fase 0 — Limpieza (hecha el 2026-09-18)
+## Phase 0 — Cleanup (done 2026-09-18)
 
-- [x] Borrado `jelou-internal-hub` (org `jelou`): app, máquina, volumen y secretos.
-- [x] Google OAuth client rescatado en `.env.local` (gitignored). El redirect URI todavía apunta a
-      `jelou-internal-hub.fly.dev`; se cambia en la Fase 2.
+- [x] Deleted `jelou-internal-hub` (org `jelou`): app, machine, volume and secrets.
+- [x] Google OAuth client saved in `.env.local` (gitignored). Its redirect URI still points at
+      `jelou-internal-hub.fly.dev`; it changes in Phase 2.
 
-## Fase 1 — Desplegar tal cual en Fly
+## Phase 1 — Deploy on Fly (done 2026-09-18)
 
-Meta: skillbox corriendo en HTTPS con su login actual. El único cambio de código de esta fase es la base de datos.
+Everything lives in **one Fly app**, `jelou-ops-skills`: no separate database, no external providers.
 
-Todo vive en **una sola app de Fly**: sin base de datos aparte ni proveedores externos.
+- [x] **Database: PGlite** (Postgres compiled to WASM, in the Bun process) on a Fly volume.
+  - `src/server/db.ts` uses `postgres.js` when `DATABASE_URL` is set (local dev, Compose) and PGlite in
+    `SKILLBOX_DATA_DIR` otherwise. Without either, PGlite runs in memory, which is how `bun test` runs.
+  - PGlite has a single backend: a global `db` query issued inside an open transaction would wait for
+    it forever, so queries from the same async context join the transaction (`AsyncLocalStorage`).
+  - `fsync` is on (PGlite disables it by default) and memory settings are small (`shared_buffers` 16MB).
+  - The server closes the database on `SIGINT`/`SIGTERM`; Fly stops idle machines with `SIGINT`.
+  - `initdb` peaks above 1GB, so the image carries an initialized template (Dockerfile target `fly`),
+    and `deploy/fly/start.sh` copies it to an empty volume. At runtime the app uses ~250MB of 512MB.
+- [x] `fly.toml`: region `iad`, `shared-cpu-1x` / 512MB, one volume (1GB, 14 days of snapshots),
+      `auto_stop_machines = "stop"`, `min_machines_running = 0`. **Always one machine**: PGlite cannot
+      be shared. Idle cost is the volume (~$0.15/GB-month); a cold start takes ~6s.
+- [x] Secret `SKILLBOX_ADMIN_TOKEN` (stored locally in `.env.fly`, gitignored).
+- [x] Verified: `/healthz` over HTTPS, 401 without a key, a key on the `jelou-read` profile lists and
+      searches skills over `/mcp`, and a revoked key gets 401. Auto-stop and wake verified.
+- [ ] Domain: `fly certs add skills.jelou.dev` + DNS record (same pattern as `tooling.jelou.dev`), then
+      set `SKILLBOX_ORIGIN`. Today it is `https://jelou-ops-skills.fly.dev`.
+- [ ] GitHub Actions deploy on push to `main` (`.github/workflows/fly-deploy.yml`) needs the repo secret
+      `FLY_API_TOKEN` (a deploy token scoped to this app).
 
-1. **Base de datos: PGlite** (Postgres compilado a WASM, corre dentro del proceso de Bun) guardado en
-   un volumen de Fly. Sigue siendo Postgres, así que `jsonb`, `to_tsvector`, `FOR UPDATE` y el esquema
-   actual siguen funcionando.
-   - `src/server/db.ts`: si hay `DATABASE_URL` se usa `postgres.js` como hoy (desarrollo local y
-     tests); si no, PGlite en `SKILLBOX_DATA_DIR` con `drizzle-orm/pglite`.
-   - Adaptar las ~22 consultas escritas a mano sobre `connection\`...\`` y las transacciones
-     (`begin`) a la API de PGlite, detrás de una interfaz común.
-   - **Cierre limpio:** en `SIGINT`/`SIGTERM` hay que llamar `pg.close()` antes de salir; si Fly
-     mata el proceso a mitad de una escritura, los datos pueden quedar corruptos.
-   - Backups: `pg_dump` ya no aplica; se usan los snapshots diarios del volumen más el `export` de
-     skills.
-   - Probar el esquema completo y la búsqueda sobre PGlite (`bun test`) antes del deploy.
-2. `fly.toml` en la raíz: app `jelou-skillbox`, org `jelou-ops`, región `iad`, `internal_port = 4791`,
-   `force_https`, check a `/healthz`, `shared-cpu-1x` / 512 MB, y **apagado automático**:
-   ```toml
-   kill_signal = "SIGINT"
-   kill_timeout = "30s"
+## Phase 2 — Google login for `@jelou.ai`
 
-   [http_service]
-     auto_stop_machines = "stop"      # "suspend" no va bien con volúmenes
-     auto_start_machines = true
-     min_machines_running = 0
+Same pattern as `internal-tooling` (restricted domain).
 
-   [[mounts]]
-     source = "skillbox_data"
-     destination = "/data"
-     initial_size = "1gb"
-     snapshot_retention = 14
-   ```
-   Sin uso solo se paga el volumen (~$0.15/GB-mes) y el disco de la imagen. Al despertar tarda un par de
-   segundos; para un agente que abre el MCP al empezar la tarea no se nota. **Siempre una sola
-   máquina**: PGlite no se comparte entre máquinas.
-3. Secretos: `SKILLBOX_ADMIN_TOKEN` (32+ caracteres aleatorios), `SKILLBOX_ORIGIN=https://skills.jelou.dev`.
-   Env: `SKILLBOX_DATA_DIR=/data/pglite`.
-4. Dominio: `fly certs add skills.jelou.dev` + registro DNS (patrón de `tooling.jelou.dev`).
-5. Deploy por GitHub Actions al hacer push a `main` (igual que `internal-tooling`).
+1. `users` table (`email`, `name`, `role: admin|author|member`, `created_at`). First login creates the user
+   as `member`; emails in `SKILLBOX_ADMIN_EMAILS` become `admin`.
+2. `sessions` gets a `user_email` column; `authenticate()` returns the principal for the user's role
+   instead of always `ADMIN`.
+3. Routes `GET /api/auth/google` and `/api/auth/google/callback` (OAuth + PKCE, `hd=jelou.ai`).
+   **The server checks** `email_verified` and the `jelou.ai` domain: `hd` is only a hint to Google.
+4. Login screen: "Sign in with Google"; admin-token login moves to a secondary link.
+5. Google Cloud Console: add the redirect `https://skills.jelou.dev/api/auth/google/callback` and remove
+   the `jelou-internal-hub` one. Secrets: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
+6. Panel: a member sees the catalog (read-only) and "Connect my agent". Admins see everything.
 
-Estado (2026-09-18): código listo. `db.ts` usa PGlite si no hay `DATABASE_URL`; las consultas globales
-hechas dentro de una transacción se unen a ella (PGlite tiene un solo backend y si no se bloquearían).
-`bun test` pasa completo sobre PGlite en memoria. El `Dockerfile` tiene el target `fly`, que ajusta los
-permisos del volumen y corre el servidor como `bun`. Falta crear la app en Fly y el dominio.
+**Done when:** a `@jelou.ai` account signs in and sees the catalog, a `@gmail.com` account is rejected,
+and the admin sees the full administration.
 
-**Listo cuando:** `/healthz` responde 200 por HTTPS, entras con el admin token, creas un perfil y una key
-de prueba, y `claude mcp add ...` con esa key lista skills.
+## Phase 3 — Personal keys ("Connect my agent")
 
-## Fase 2 — Login con Google `@jelou.ai`
+1. `clients` gets `owner_email`. Default profile `jelou-read` (all skills, read-only); authors get one
+   that can propose.
+2. "Connect my agent" page: the user names the device ("MacBook"), the page creates a key tied to their
+   email, lists their keys (name, last use) and lets them revoke. Limit: 5 active per person.
+3. Besides the key, the page issues a **one-time install code** (expires in 10 minutes) that goes in the
+   command, so the key never lands in shell history or a URL.
+4. Admin: sees every key with its owner and can revoke any.
 
-Mismo patrón que `internal-tooling` (Auth.js, dominio restringido).
-
-1. Tabla `users` (`email`, `name`, `role: admin|author|member`, `created_at`). Primer login crea el
-   usuario como `member`; los correos de `SKILLBOX_ADMIN_EMAILS` entran como `admin`.
-2. `sessions` gana columna `user_email`; `authenticate()` devuelve el principal según el rol del usuario,
-   ya no siempre `ADMIN`.
-3. Rutas `GET /api/auth/google` y `/api/auth/google/callback` (OAuth + PKCE, `hd=jelou.ai`).
-   **El servidor verifica** `email_verified` y que el dominio sea `jelou.ai`: `hd` solo es una pista
-   para Google, no un control.
-4. Pantalla de login: botón "Entrar con Google"; el login con admin token queda en un enlace secundario.
-5. En Google Cloud Console: agregar el redirect `https://skills.jelou.dev/api/auth/google/callback` y
-   quitar el de `jelou-internal-hub`. Secretos: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
-6. Panel: un miembro ve solo el catálogo (lectura) y "Conectar mi agente". Admin ve todo.
-
-**Listo cuando:** un `@jelou.ai` entra y ve el catálogo, un `@gmail.com` es rechazado y el admin ve la
-administración completa.
-
-## Fase 3 — Keys personales ("Conectar mi agente")
-
-1. `clients` gana `owner_email`. Perfil por defecto `jelou-lectura` (todas las skills, solo lectura);
-   los autores reciben uno con permiso de propuesta.
-2. Página "Conectar mi agente": el usuario pone un nombre ("MacBook"), y la página genera una key atada
-   a su correo, lista sus keys (nombre, último uso) y le deja revocarlas. Tope: 5 activas por persona.
-3. Además de la key, la página emite un **código de instalación de un solo uso** (vence en 10 minutos),
-   que es lo que va en el comando. Así la key nunca queda en el historial del shell ni en una URL.
-4. Admin: ve todas las keys con su dueño y puede revocar cualquiera.
-
-## Fase 4 — Instalador de un solo comando
+## Phase 4 — One-command installer
 
 ```sh
-curl -fsSL https://skills.jelou.dev/install | sh -s -- <código>
+curl -fsSL https://skills.jelou.dev/install | sh -s -- <code>
 ```
 
-1. `GET /install` sirve un `sh` corto: comprueba que haya `node` o `bun`, descarga `skillbox.mjs` y
-   `package.mjs` a `~/.local/share/skillbox/` y ejecuta `skillbox setup <código>`.
-2. `skillbox setup` (nuevo, en Node; **no** en Python: el Python del sistema en macOS no trae
-   `tomllib`) hace lo que hoy hace `scripts/install-client.py`:
-   - Canjea el código por la key → `~/.config/skillbox/config.json` (modo 0600).
-   - Instala la skill `skills-library` en `~/.agents/skills/` y la enlaza en `~/.claude/skills/` y
+1. `GET /install` serves a short `sh`: checks for `node` or `bun`, downloads `skillbox.mjs` and
+   `package.mjs` to `~/.local/share/skillbox/` and runs `skillbox setup <code>`.
+2. `skillbox setup` (new, in Node; **not** Python: macOS system Python has no `tomllib`) does what
+   `scripts/install-client.py` does today:
+   - Exchanges the code for the key → `~/.config/skillbox/config.json` (mode 0600).
+   - Installs the `skills-library` skill in `~/.agents/skills/` and links it into `~/.claude/skills/` and
      `~/.cursor/skills/`.
-   - Registra el MCP en cada cliente que encuentre, usando el **puente stdio** con `SKILLBOX_CONFIG`
-     (las apps de escritorio no heredan variables del shell, así que un env var no sirve):
-     - Claude Code → `~/.claude.json` (lo lee también la pestaña Code de Claude Desktop).
-     - Codex → `~/.codex/config.toml` (compartido por CLI, app de escritorio e IDE).
+   - Registers the MCP server in every client it finds, through the **stdio bridge** with
+     `SKILLBOX_CONFIG` (desktop apps do not inherit shell variables, so an env var does not work):
+     - Claude Code → `~/.claude.json` (also read by Claude Desktop's Code tab).
+     - Codex → `~/.codex/config.toml` (shared by CLI, desktop app and IDE).
      - Cursor → `~/.cursor/mcp.json`.
-   - Hace backup de cada archivo que toca y prueba la conexión (`tools/list` + `search_skills`).
-   - Instala el comando `skillbox` en `~/.local/bin`.
-3. Comandos nuevos del CLI:
-   - `skillbox update`: vuelve a bajar el CLI y la skill `skills-library` desde el servidor.
-   - `skillbox doctor`: revisa la key, la conexión y qué clientes están configurados.
-   - `skillbox uninstall`: quita la configuración de los clientes y restaura los backups.
+   - Backs up every file it touches and tests the connection (`tools/list` + `search_skills`).
+   - Installs the `skillbox` command in `~/.local/bin`.
+3. New CLI commands:
+   - `skillbox update`: downloads the CLI and the `skills-library` skill again from the server.
+   - `skillbox doctor`: checks the key, the connection and which clients are configured.
+   - `skillbox uninstall`: removes client configuration and restores backups.
 
-**Listo cuando:** en una Mac limpia, un `@jelou.ai` va del login a su primera skill cargada en Claude Code y
-en Codex en menos de 2 minutos.
+**Done when:** on a clean Mac, a `@jelou.ai` user goes from login to their first skill loaded in Claude
+Code and Codex in under 2 minutes.
 
-## Fase 5 — Publicar y actualizar skills
+## Phase 5 — Publishing and updating skills
 
-Lo que ya existe (no se toca):
+Already exists (unchanged):
 
-- **CLI:** `skillbox publish ./carpeta id <revisión-actual|new>`. La revisión esperada evita pisar el
-  cambio de otra persona.
-- **MCP:** `upsert_skill` (quien tiene permiso de escritura) y `propose_skill_update` (autores).
-- **Panel:** editor, historial, restaurar, revisión de propuestas.
+- **CLI:** `skillbox publish ./folder id <current-revision|new>`. The expected revision prevents
+  overwriting someone else's change.
+- **MCP:** `upsert_skill` (write permission) and `propose_skill_update` (authors).
+- **Panel:** editor, history, restore, proposal review.
 
-Qué se agrega:
+To add:
 
-1. **Skill `skillbox-publisher`**, guardada en la propia biblioteca y visible solo para admin y autores.
-   Le enseña al agente a:
-   - validar la carpeta (`SKILL.md` con `name` y `description`, sin secretos, sin rutas absolutas);
-   - `skillbox load <id>` para sacar la revisión actual, o `new` si la skill no existe;
-   - publicar (admin) o proponer (autor) con un mensaje claro de qué cambió.
+1. **`skillbox-publisher` skill**, stored in the library itself and visible only to admins and authors.
+   It teaches the agent to:
+   - validate the folder (`SKILL.md` with `name` and `description`, no secrets, no absolute paths);
+   - `skillbox load <id>` to get the current revision, or `new` if the skill does not exist;
+   - publish (admin) or propose (author) with a clear message about what changed.
 
-   No es obligatoria (las herramientas MCP ya permiten escribir), pero hace que todos publiquen igual y
-   evita errores comunes.
-2. **Carga inicial:** `bun scripts/import.ts` con las skills que se decidan (ver Decisiones pendientes).
+   Optional (the MCP tools can already write), but it makes everyone publish the same way.
+2. **Initial load:** `bun scripts/import.ts` with the chosen skills (see Open decisions).
 
-Para quien consume las skills: **no hay nada que actualizar.** El agente lee la biblioteca en vivo. Solo
-las skills bajadas con `skillbox fetch` (las que traen scripts) se refrescan con `skillbox fetch <id>`.
+Consumers have **nothing to update**: the agent reads the library live. Only skills downloaded with
+`skillbox fetch` (the ones with scripts) are refreshed with `skillbox fetch <id>`.
 
-## Fase 6 (posterior) — Claude Desktop (chat) y claude.ai
+## Phase 6 (later) — Claude Desktop (chat) and claude.ai
 
-Estos no pueden usar el MCP con key fija. Por ahora:
+These cannot use the MCP server with a fixed key. For now:
 
-- `skillbox export --zip <id>` genera un ZIP por skill.
-- Un owner de la organización de Claude lo sube en **Organization settings → Skills** y aparece para toda
-  la org.
-- Es una copia fija: cada cambio hay que volver a subirlo. Solo para las skills que valga la pena.
+- `skillbox export --zip <id>` builds one ZIP per skill.
+- An owner of the Claude organization uploads it in **Organization settings → Skills**, and it shows up
+  for the whole org.
+- It is a snapshot: every change must be uploaded again. Only for skills worth it.
 
-Más adelante: OAuth en skillbox (sobre el mismo login de Google) para agregarlo como conector propio.
+Later: OAuth in skillbox (on the same Google login) to add it as a custom connector.
 
-## Operación
+## Operations
 
-- **Backups:** snapshots diarios del volumen de Fly (14 días), más un `export` semanal de las skills a un repo privado.
-- **Rotación:** cambiar `SKILLBOX_ADMIN_TOKEN` deja ilegibles las credenciales guardadas (ver
-  `docs/deployment.md`); rotarlo solo a propósito.
-- **Baja de una persona:** revocar sus keys desde el panel; su Google ya no entra al salir de Jelou.
+- **Backups:** daily Fly volume snapshots (14 days), plus a weekly skills `export` to a private repo.
+  `pg_dump` does not apply to PGlite.
+- **Rotation:** changing `SKILLBOX_ADMIN_TOKEN` makes stored credentials unreadable (see
+  `docs/deployment.md`); rotate it only on purpose.
+- **Offboarding:** revoke the person's keys in the panel; their Google account stops working when they
+  leave Jelou.
 
-## Decisiones pendientes
+## Open decisions
 
-1. **Dominio:** ¿`skills.jelou.dev`?
-2. **Carga inicial:** ¿qué skills entran primero? (¿las `jelou-*`?)
-3. **Autores:** ¿quiénes arrancan con permiso de proponer?
-4. **Owner de Claude:** ¿quién sube los ZIP en claude.ai si hacemos la Fase 6?
+1. **Domain:** `skills.jelou.dev`?
+2. **Initial load:** which skills go first? (the `jelou-*` ones?)
+3. **Authors:** who starts with permission to propose?
+4. **Claude owner:** who uploads the ZIPs to claude.ai if we do Phase 6?
