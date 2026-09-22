@@ -61,6 +61,7 @@ import {
   Download,
   Trash2,
   Layers,
+  Plus,
   PauseCircle,
   PlayCircle,
   Settings2,
@@ -80,7 +81,14 @@ import "@fontsource/poppins/500.css";
 import "@fontsource/poppins/600.css";
 import jelouSkillsLogo from "./jelou-skills-logo.svg?raw";
 import jelouSkillsMark from "./jelou-skills-mark.svg?raw";
-import { PageHeader, Panel, EmptyState, UserAvatar, usePresence } from "./page-kit";
+import {
+  PageHeader,
+  Panel,
+  EmptyState,
+  UserAvatar,
+  usePresence,
+  useDialog,
+} from "./page-kit";
 import "./cortex-tokens.css";
 import "./styles.css";
 type Me = { name: string; role: string; email: string | null };
@@ -529,6 +537,120 @@ function BundlesPage() {
     </main>
   );
 }
+function NewSkillDialog({ onClose }: { onClose: () => void }) {
+  useDialog(true, onClose);
+  const skill = [
+    "---",
+    "name: my-skill",
+    "description: What it does and when an agent should use it.",
+    "---",
+    "",
+    "# My skill",
+    "",
+    "The steps the agent follows.",
+  ].join("\n");
+  const command = "jelou-skills publish ./my-skill my-skill new";
+  const prompt = "Publish ./my-skill to the Jelou Skills library";
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label="New skill"
+        className="access-dialog"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header>
+          <div className="settings-card-title">
+            <h2>New skill</h2>
+            <p>
+              Skills are published from your computer with the jelou-skills
+              CLI. The library stays read-only here.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Close"
+            onClick={onClose}
+          >
+            <X size={18} />
+          </Button>
+        </header>
+        <ol className="install-steps">
+          <li>
+            <span className="step-number">1</span>
+            <div>
+              <strong className="step-title">Connect this computer</strong>
+              <p>
+                The publish command ships with the CLI. Skip this if{" "}
+                <code>jelou-skills</code> already runs here.
+              </p>
+              <div>
+                <Button variant="outline" asChild>
+                  <Link to="/devices">
+                    <Terminal size={15} /> Get the install command
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </li>
+          <li>
+            <span className="step-number">2</span>
+            <div>
+              <strong className="step-title">Write the folder</strong>
+              <p>
+                One folder with a <code>SKILL.md</code> at its root. Its name
+                is the skill id: lowercase letters, digits and hyphens.
+              </p>
+              <div className="code-block">
+                <CopyButton text={skill} />
+                <pre>{skill}</pre>
+              </div>
+              <p className="field-help">
+                Everything in English. No secrets, no symlinks, 2 MB per file.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span className="step-number">3</span>
+            <div>
+              <strong className="step-title">Publish it</strong>
+              <div className="code-block command-block">
+                <CopyButton text={command} />
+                <pre>{command}</pre>
+              </div>
+              <p className="field-help">
+                <code>new</code> creates the skill. To publish a change later,
+                pass the revision shown on the skill page instead.
+              </p>
+            </div>
+          </li>
+          <li>
+            <span className="step-number">4</span>
+            <div>
+              <strong className="step-title">Or ask your agent</strong>
+              <p>
+                A connected agent has the publisher skill and does the same
+                steps for you.
+              </p>
+              <div className="copy-line prompt-line">
+                <code>{prompt}</code>
+                <CopyButton text={prompt} />
+              </div>
+            </div>
+          </li>
+        </ol>
+        <footer>
+          <Button variant="outline" onClick={onClose}>
+            Done
+          </Button>
+        </footer>
+      </section>
+    </div>
+  );
+}
 function LibraryPage() {
   const auth = useContext(Auth);
   const [skills, setSkills] = useState<SkillSummary[]>([]),
@@ -537,7 +659,8 @@ function LibraryPage() {
     [tag, setTag] = useState(""),
     [view, setView] = useState("available"),
     [error, setError] = useState(""),
-    [loading, setLoading] = useState(true);
+    [loading, setLoading] = useState(true),
+    [publishing, setPublishing] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const params = "metrics=true&includeArchived=true&includeDisabled=true";
   useEffect(() => {
@@ -590,7 +713,15 @@ function LibraryPage() {
       <PageHeader
         title="Library"
         description={`${available.length} ${available.length === 1 ? "skill" : "skills"} your agent can use. Connect once and they load when a task needs them.`}
+        actions={
+          auth.role === "admin" && (
+            <Button onClick={() => setPublishing(true)}>
+              <Plus size={15} /> New skill
+            </Button>
+          )
+        }
       />
+      {publishing && <NewSkillDialog onClose={() => setPublishing(false)} />}
       <div className="library-search">
         <div className="search-field">
           <Search size={19} />
@@ -688,6 +819,13 @@ function LibraryPage() {
               : view === "available"
                 ? "Skills are published with the jelou-skills CLI or the jelou-skills-publisher skill."
                 : undefined
+          }
+          action={
+            auth.role === "admin" && !query && !tag && view === "available" ? (
+              <Button onClick={() => setPublishing(true)}>
+                <Plus size={15} /> New skill
+              </Button>
+            ) : undefined
           }
         />
       )}
