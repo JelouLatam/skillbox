@@ -175,3 +175,43 @@ export function usePresence(open: boolean, exitMs = 120) {
     state: open ? "open" : "closed",
   } as const;
 }
+
+export function useDialog(active: boolean, close: () => void) {
+  useEffect(() => {
+    if (!active) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const dialog = document.querySelector<HTMLElement>(".access-dialog");
+    const focusable = () =>
+      Array.from(
+        dialog?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex="0"]',
+        ) ?? [],
+      );
+    if (!dialog?.contains(document.activeElement)) focusable()[0]?.focus();
+    const keydown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close();
+      }
+      if (e.key !== "Tab") return;
+      const targets = focusable(),
+        first = targets[0],
+        last = targets.at(-1);
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last?.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first?.focus();
+      }
+    };
+    document.addEventListener("keydown", keydown);
+    return () => {
+      document.body.style.overflow = overflow;
+      document.removeEventListener("keydown", keydown);
+      previous?.focus();
+    };
+  }, [active]);
+}
