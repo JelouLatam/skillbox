@@ -208,6 +208,7 @@ app.get("/api/me", async (c) => {
     // A browser session is always read-only: publishing runs on a personal key,
     // whose profile carries the permissions, so the stored role decides this.
     canPublish: p.role === "admin" || user?.role === "author",
+    canDelete: lib.permits(p, "delete"),
   });
 });
 app.get("/api/my/keys", async (c) =>

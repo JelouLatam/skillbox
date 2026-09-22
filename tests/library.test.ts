@@ -30,7 +30,7 @@ import {
 } from "../src/server/library";
 import { createRecommender, EvaluationUnavailable } from "../src/server/recommendations";
 import * as access from "../src/server/access";
-import { authenticate, createClient } from "../src/server/auth";
+import { authenticate, createClient, userPrincipal } from "../src/server/auth";
 import type { Principal } from "../src/shared";
 const ids = [
   "test-a-" + randomUUID().slice(0, 8),
@@ -1408,4 +1408,32 @@ test("legacy migration preserves key identity and exact grants, and is repeatabl
   } finally {
     await db.delete(clients).where(eq(clients.id, id));
   }
+});
+
+test("an author archives from the browser but a member cannot, and neither can publish there", async () => {
+  const id = "test-author-archive-" + randomUUID().slice(0, 8);
+  const file = makeFile(
+    "SKILL.md",
+    `---\nname: ${id}\ndescription: Fixture for browser archive permissions\n---\nBody.`,
+  );
+  const created = await publish(ADMIN, id, [file], null);
+  const session = (role: "author" | "member"): Principal =>
+    userPrincipal({
+      email: `${role}-${id}@example.com`,
+      name: role,
+      role,
+    } as Parameters<typeof userPrincipal>[0]);
+  expect(session("author").permissions).toEqual({
+    create: false,
+    update: false,
+    delete: true,
+    propose: true,
+  });
+  expect(
+    archiveSkill(session("member"), id, created.revision),
+  ).rejects.toThrow("Delete permission required");
+  expect(publish(session("author"), id, [file], created.revision)).rejects.toThrow();
+  const archived = await archiveSkill(session("author"), id, created.revision);
+  expect(metadata(id, (await revisionFor(ADMIN, id)).files).archived).toBe(true);
+  expect(archived.revision).not.toBe(created.revision);
 });

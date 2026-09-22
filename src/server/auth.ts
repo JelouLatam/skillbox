@@ -135,9 +135,11 @@ export function userPrincipal(
     allSkills: true,
     skillIds: [],
     permissions: {
+      // Authoring stays on the CLI, but an author archives from the browser:
+      // "delete" here is archiveSkill, which keeps files, history and links.
       create: false,
       update: false,
-      delete: false,
+      delete: user.role === "author",
       propose: user.role === "author",
     },
     context,

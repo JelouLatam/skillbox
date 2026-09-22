@@ -3989,6 +3989,10 @@ select:hover:not(:focus-visible, :disabled) {
 .menu-item:hover {
   background: var(--subtle);
 }
+.menu-item.menu-item-danger strong,
+.menu-item.menu-item-danger > svg {
+  color: var(--error);
+}
 .menu-item > svg {
   flex-shrink: 0;
   margin-top: 3px;

@@ -26,6 +26,7 @@ import {
   Outlet,
   Link,
   useRouterState,
+  useNavigate,
 } from "@tanstack/react-router";
 import {
   Library,
@@ -96,12 +97,14 @@ type Me = {
   role: string;
   email: string | null;
   canPublish: boolean;
+  canDelete: boolean;
 };
 const Auth = createContext<Me>({
   name: "",
   role: "reader",
   email: null,
   canPublish: false,
+  canDelete: false,
 });
 function BrandLogo() {
   return (
@@ -1106,6 +1109,49 @@ function InstallGuide({
     </Panel>
   );
 }
+function DeleteSkillDialog({
+  title,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  title: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  useDialog(true, onCancel);
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Delete ${title}`}
+        className="access-dialog"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header>
+          <div className="settings-card-title">
+            <h2>Delete {title}?</h2>
+            <p>
+              Agents stop seeing it right away. Its files, history and links
+              stay, so publishing the folder again brings it back.
+            </p>
+          </div>
+        </header>
+        <footer>
+          <Button variant="ghost" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="destructive" onClick={onConfirm} disabled={busy}>
+            {busy ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}{" "}
+            Delete skill
+          </Button>
+        </footer>
+      </section>
+    </div>
+  );
+}
 function SkillPage() {
   const { id } = skillRoute.useParams();
   const [loaded, setLoaded] = useState<any>(null),
@@ -1117,8 +1163,10 @@ function SkillPage() {
     [busy, setBusy] = useState(false),
     [connected, setConnected] = useState(false),
     [menuOpen, setMenuOpen] = useState(false),
+    [confirmDelete, setConfirmDelete] = useState(false),
     [catalog, setCatalog] = useState<SkillSummary[]>([]);
   const auth = useContext(Auth);
+  const navigate = useNavigate();
   const refresh = async () => {
     const l = await api("/skills/" + id);
     const [b, h] = await Promise.all([
@@ -1156,6 +1204,22 @@ function SkillPage() {
       document.removeEventListener("keydown", close);
     };
   }, [menuOpen]);
+  const remove = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await api("/skills/" + id, {
+        method: "DELETE",
+        body: JSON.stringify({ expectedRevision: loaded.revision }),
+      });
+      navigate({ to: "/" });
+    } catch (e) {
+      setError((e as Error).message);
+      setConfirmDelete(false);
+    } finally {
+      setBusy(false);
+    }
+  };
   const toggleDisabled = async () => {
     setBusy(true);
     setError("");
@@ -1257,7 +1321,7 @@ function SkillPage() {
               )}
             />
           )}
-          {auth.role === "admin" && (
+          {(auth.role === "admin" || auth.canDelete) && (
             <div className="admin-menu">
               <Button
                 variant="outline"
@@ -1271,7 +1335,8 @@ function SkillPage() {
               </Button>
               {adminMenu.mounted && (
                 <div className="menu" role="menu" data-state={adminMenu.state}>
-                  <div className="menu-label">Admin</div>
+                  <div className="menu-label">Manage</div>
+                  {auth.role === "admin" && (
                   <button
                     type="button"
                     role="menuitem"
@@ -1294,6 +1359,7 @@ function SkillPage() {
                       </span>
                     </span>
                   </button>
+                  )}
                   <button
                     type="button"
                     role="menuitem"
@@ -1311,6 +1377,27 @@ function SkillPage() {
                       </span>
                     </span>
                   </button>
+                  {auth.canDelete && !loaded.metadata.archived && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="menu-item menu-item-danger"
+                      disabled={busy}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setConfirmDelete(true);
+                      }}
+                    >
+                      <Trash2 size={15} />
+                      <span>
+                        <strong>Delete skill</strong>
+                        <span>
+                          Agents stop seeing it. Files, history and links are
+                          kept, so republishing brings it back.
+                        </span>
+                      </span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1318,6 +1405,14 @@ function SkillPage() {
         </div>
       </header>
       <ErrorNote error={error} />
+      {confirmDelete && (
+        <DeleteSkillDialog
+          title={loaded.metadata.title}
+          busy={busy}
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={remove}
+        />
+      )}
       {loaded.metadata.disabled && (
         <div className="archive-note hidden-note" role="status">
           <EyeOff size={16} />
