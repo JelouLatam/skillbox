@@ -195,12 +195,19 @@ app.put("/api/settings/ai-gateway", async (c) => {
   assertAdmin(c.get("principal"));
   return c.json(await gateway.configureGateway(gateway.gatewayInput.parse(await c.req.json())));
 });
-app.get("/api/me", (c) => {
+app.get("/api/me", async (c) => {
   const p = c.get("principal");
+  const email = p.id.startsWith("user:") ? p.id.slice(5) : null;
+  const [user] = email
+    ? await db.select().from(users).where(eq(users.email, email))
+    : [];
   return c.json({
     name: p.name,
     role: p.role,
-    email: p.id.startsWith("user:") ? p.id.slice(5) : null,
+    email,
+    // A browser session is always read-only: publishing runs on a personal key,
+    // whose profile carries the permissions, so the stored role decides this.
+    canPublish: p.role === "admin" || user?.role === "author",
   });
 });
 app.get("/api/my/keys", async (c) =>

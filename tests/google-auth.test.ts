@@ -115,6 +115,7 @@ test("callback creates a member session that can read but not administer", async
     name: "reader",
     role: "reader",
     email: "reader@example.com",
+    canPublish: false,
   });
   expect(
     (await app.request("/api/skills", { headers: { Cookie: session } })).status,
@@ -150,6 +151,14 @@ test("admins promote members to authors; admin roles stay in the environment", a
     body: JSON.stringify({ role: "author" }),
   });
   expect((await promote.json()).role).toBe("author");
+  const authorSession = (await signIn(claims("writer@example.com")))
+    .headers.getSetCookie()
+    .find((c) => c.startsWith("skillbox_session="))!
+    .split(";")[0];
+  const authorMe = await app.request("/api/me", {
+    headers: { Cookie: authorSession },
+  });
+  expect((await authorMe.json()).canPublish).toBe(true);
   expect(
     (await upsertUser(identity({ email: "writer@example.com" }))).role,
   ).toBe("author");

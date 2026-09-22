@@ -91,11 +91,17 @@ import {
 } from "./page-kit";
 import "./cortex-tokens.css";
 import "./styles.css";
-type Me = { name: string; role: string; email: string | null };
+type Me = {
+  name: string;
+  role: string;
+  email: string | null;
+  canPublish: boolean;
+};
 const Auth = createContext<Me>({
   name: "",
   role: "reader",
   email: null,
+  canPublish: false,
 });
 function BrandLogo() {
   return (
@@ -539,18 +545,6 @@ function BundlesPage() {
 }
 function NewSkillDialog({ onClose }: { onClose: () => void }) {
   useDialog(true, onClose);
-  const skill = [
-    "---",
-    "name: my-skill",
-    "description: What it does and when an agent should use it.",
-    "---",
-    "",
-    "# My skill",
-    "",
-    "The steps the agent follows.",
-  ].join("\n");
-  const command = "jelou-skills publish ./my-skill my-skill new";
-  const prompt = "Publish ./my-skill to the Jelou Skills library";
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <section
@@ -564,8 +558,8 @@ function NewSkillDialog({ onClose }: { onClose: () => void }) {
           <div className="settings-card-title">
             <h2>New skill</h2>
             <p>
-              Skills are published from your computer with the jelou-skills
-              CLI. The library stays read-only here.
+              Your agent publishes for you. Connect it once, then ask in your
+              own words — the library is read-only here.
             </p>
           </div>
           <Button
@@ -578,70 +572,14 @@ function NewSkillDialog({ onClose }: { onClose: () => void }) {
             <X size={18} />
           </Button>
         </header>
-        <ol className="install-steps">
-          <li>
-            <span className="step-number">1</span>
-            <div>
-              <strong className="step-title">Connect this computer</strong>
-              <p>
-                The publish command ships with the CLI. Skip this if{" "}
-                <code>jelou-skills</code> already runs here.
-              </p>
-              <div>
-                <Button variant="outline" asChild>
-                  <Link to="/devices">
-                    <Terminal size={15} /> Get the install command
-                  </Link>
-                </Button>
-              </div>
-            </div>
-          </li>
-          <li>
-            <span className="step-number">2</span>
-            <div>
-              <strong className="step-title">Write the folder</strong>
-              <p>
-                One folder with a <code>SKILL.md</code> at its root. Its name
-                is the skill id: lowercase letters, digits and hyphens.
-              </p>
-              <div className="code-block">
-                <CopyButton text={skill} />
-                <pre>{skill}</pre>
-              </div>
-              <p className="field-help">
-                Everything in English. No secrets, no symlinks, 2 MB per file.
-              </p>
-            </div>
-          </li>
-          <li>
-            <span className="step-number">3</span>
-            <div>
-              <strong className="step-title">Publish it</strong>
-              <div className="code-block command-block">
-                <CopyButton text={command} />
-                <pre>{command}</pre>
-              </div>
-              <p className="field-help">
-                <code>new</code> creates the skill. To publish a change later,
-                pass the revision shown on the skill page instead.
-              </p>
-            </div>
-          </li>
-          <li>
-            <span className="step-number">4</span>
-            <div>
-              <strong className="step-title">Or ask your agent</strong>
-              <p>
-                A connected agent has the publisher skill and does the same
-                steps for you.
-              </p>
-              <div className="copy-line prompt-line">
-                <code>{prompt}</code>
-                <CopyButton text={prompt} />
-              </div>
-            </div>
-          </li>
-        </ol>
+        <InstallGuide
+          ask="Point it at the folder you already have. It checks the SKILL.md, publishes it and tells you the revision:"
+          prompts={[
+            "Publish this skill folder to the Jelou Skills library.",
+            "Update this skill in the Jelou Skills library.",
+          ]}
+          hint="The install command carries your key, so your agent needs nothing else from this page."
+        />
         <footer>
           <Button variant="outline" onClick={onClose}>
             Done
@@ -714,7 +652,7 @@ function LibraryPage() {
         title="Library"
         description={`${available.length} ${available.length === 1 ? "skill" : "skills"} your agent can use. Connect once and they load when a task needs them.`}
         actions={
-          auth.role === "admin" && (
+          auth.canPublish && (
             <Button onClick={() => setPublishing(true)}>
               <Plus size={15} /> New skill
             </Button>
@@ -821,7 +759,7 @@ function LibraryPage() {
                 : undefined
           }
           action={
-            auth.role === "admin" && !query && !tag && view === "available" ? (
+            auth.canPublish && !query && !tag && view === "available" ? (
               <Button onClick={() => setPublishing(true)}>
                 <Plus size={15} /> New skill
               </Button>
@@ -873,11 +811,19 @@ function usedLabel(k: DeviceKey) {
     : `used ${date(when)}`;
 }
 function InstallGuide({
-  id,
+  prompts,
+  ask,
+  title,
+  description,
+  hint,
   onConnected,
 }: {
-  id: string;
-  onConnected: (connected: boolean) => void;
+  prompts: string[];
+  ask: string;
+  title?: string;
+  description?: string;
+  hint?: ReactNode;
+  onConnected?: (connected: boolean) => void;
 }) {
   const auth = useContext(Auth);
   const url = window.location.origin;
@@ -902,7 +848,7 @@ function InstallGuide({
   const connected = (keys ?? []).filter((k) => lastUse(k));
   const unused = (keys ?? []).filter((k) => !lastUse(k) && k.id !== pending?.id);
   const isConnected = connected.length > 0 || !!justConnected;
-  useEffect(() => onConnected(isConnected), [isConnected]);
+  useEffect(() => onConnected?.(isConnected), [isConnected]);
   const expired = pending ? now > Date.parse(pending.codeExpiresAt) : false;
   useEffect(() => {
     if (!pending || expired) return;
@@ -960,7 +906,6 @@ function InstallGuide({
   const remaining = pending ? Math.max(0, Date.parse(pending.codeExpiresAt) - now) : 0;
   const clock = `${Math.floor(remaining / 60000)}:${String(Math.floor((remaining % 60000) / 1000)).padStart(2, "0")}`;
   const command = pending ? `curl -fsSL ${url}/install | sh -s -- ${pending.code}` : "";
-  const prompt = `Use the ${id} skill from the library.`;
   const full = (keys?.length ?? 0) >= limit;
   const form = (
     <form
@@ -1129,9 +1074,9 @@ function InstallGuide({
   return (
     <Panel
       className="install-card"
-      icon={<Plug size={18} />}
-      title="Use this skill"
-      description="Connect your agent once and it gets every skill in the library, updates included."
+      icon={title ? <Plug size={18} /> : undefined}
+      title={title}
+      description={description}
     >
       <ol className="install-steps">
         <li>
@@ -1147,11 +1092,14 @@ function InstallGuide({
           <span className="step-number">2</span>
           <div>
             <strong className="step-title">Just ask</strong>
-            <p>Your agent picks the right skill on its own. To be explicit:</p>
-            <div className="copy-line prompt-line">
-              <code>{prompt}</code>
-              <CopyButton text={prompt} />
-            </div>
+            <p>{ask}</p>
+            {prompts.map((prompt) => (
+              <div className="copy-line prompt-line" key={prompt}>
+                <code>{prompt}</code>
+                <CopyButton text={prompt} />
+              </div>
+            ))}
+            {hint && <p className="field-help">{hint}</p>}
           </div>
         </li>
       </ol>
@@ -1406,7 +1354,13 @@ function SkillPage() {
       )}
       <div className="skill-layout">
         <aside className="skill-rail">
-          <InstallGuide id={id} onConnected={setConnected} />
+          <InstallGuide
+            title="Use this skill"
+            description="Connect your agent once and it gets every skill in the library, updates included."
+            ask="Your agent picks the right skill on its own. To be explicit:"
+            prompts={[`Use the ${id} skill from the library.`]}
+            onConnected={setConnected}
+          />
           {loaded.metadata.kind !== "bundle" && (
           <Panel
             flush
